@@ -1,0 +1,23 @@
+[package]
+name = "phi-tui"
+version = "0.1.0"
+edition = "2024"
+description = "Chat-style TUI components for LLM terminals: streaming transcript, markdown, completion, selection"
+license = "MIT"
+repository = "https://github.com/hibuka-labs/phi-tui"
+keywords = ["tui", "ratatui", "llm", "chat", "terminal"]
+categories = ["command-line-interface", "text-processing"]
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.28"
+pulldown-cmark = "0.13"
+unicode-width = "0.1"
+# viewport's scroll/window tracing debug logs; a normal (non-optional) dep —
+# gating every call site with cfg costs more noise than the feature is worth.
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+# Integration tests assert the display-width contract directly.
+unicode-width = "0.1"
