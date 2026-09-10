@@ -265,11 +265,31 @@ impl MentionCompleter {
         self.inner.is_empty()
     }
 
-    /// 处理键盘输入，返回动作
+    /// Handle key input and return an action.
+    ///
+    /// When a directory is selected, navigate into it instead of selecting directly.
+    /// Only returns Selected for files or synthetic entries.
     pub fn handle_key(&mut self, code: KeyCode) -> CompleterAction<Entry> {
         match self.inner.handle_key(code) {
+            CompleterAction::Selected(item) => {
+                if item.is_dir && !item.synthetic {
+                    // Real directory selected → navigate into it
+                    let new_prefix = mention::rel_or_abs(&self.workspace_root, &item.path);
+                    // Ensure trailing / to indicate directory navigation
+                    self.inner.picker.prefix = if new_prefix.ends_with('/') {
+                        new_prefix
+                    } else {
+                        format!("{new_prefix}/")
+                    };
+                    self.refresh_entries();
+                    CompleterAction::Continue
+                } else {
+                    // File or synthetic entry → select directly
+                    CompleterAction::Selected(item)
+                }
+            }
             CompleterAction::Continue => {
-                // 刷新条目（特殊逻辑）
+                // Refresh entries (special logic)
                 self.refresh_entries();
                 CompleterAction::Continue
             }
