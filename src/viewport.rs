@@ -15,6 +15,10 @@ pub struct Viewport {
     pub scroll_offset: usize,
     /// Whether the output view is pinned to the newest lines.
     pub follow_bottom: bool,
+    /// Pinned to the very top of the content (resume replay landing spot).
+    /// `window_range` shows `0..height` while set; any manual scroll clears
+    /// it by converting the pin into an equivalent `scroll_offset`.
+    pub pin_top: bool,
     /// Last known rendered line count (updated by `render_output` each frame).
     pub rendered_total: usize,
     /// Last known output-pane height in rows (updated by `render_output`).
@@ -27,6 +31,7 @@ impl Viewport {
         Self {
             scroll_offset: 0,
             follow_bottom: true,
+            pin_top: false,
             rendered_total: 0,
             viewport_height: 0,
         }
@@ -42,6 +47,12 @@ impl Viewport {
     /// Once the viewport knows its rendered size, the offset is clamped to the
     /// maximum useful offset (past the top of the content).
     pub fn scroll_up(&mut self, step: usize) -> bool {
+        if self.pin_top {
+            // Already showing the head; convert the pin into its equivalent
+            // offset so the clamp below keeps the view where it is.
+            self.pin_top = false;
+            self.scroll_offset = self.max_offset();
+        }
         let old = self.scroll_offset;
         self.follow_bottom = false;
         self.scroll_offset += step;
@@ -71,6 +82,12 @@ impl Viewport {
             tracing::debug!("scroll_down: already at bottom");
             return false;
         }
+        if self.pin_top {
+            // Leave the top pin: start from an equivalent offset (the head)
+            // so the subtraction below moves one real page down.
+            self.pin_top = false;
+            self.scroll_offset = self.max_offset();
+        }
         let old = self.scroll_offset;
         if self.scroll_offset <= step {
             self.scroll_offset = 0;
@@ -87,12 +104,49 @@ impl Viewport {
         true
     }
 
+    /// Pin the viewport to the very top of the content: `window_range` shows
+    /// `0..height` while the pin holds; manual scrolls convert it into an
+    /// equivalent offset via [`Self::max_offset`]. Used after a resume
+    /// replay: the user re-enters the session to READ the history, so the
+    /// view starts at its head (not the tail).
+    pub fn scroll_to_top(&mut self) {
+        self.follow_bottom = false;
+        self.pin_top = true;
+        self.scroll_offset = 0;
+    }
+
+    /// Snap back to the newest lines (re-enter follow-bottom). Used when the
+    /// user sends a message while scrolled up, so the reply streams into
+    /// view instead of below the fold.
+    pub fn scroll_to_bottom(&mut self) {
+        self.follow_bottom = true;
+        self.pin_top = false;
+        self.scroll_offset = 0;
+    }
+
+    /// Offset that puts the window at the very top of the content
+    /// (`start = 0`), given the last known rendered size.
+    fn max_offset(&self) -> usize {
+        self.rendered_total.saturating_sub(self.viewport_height)
+    }
+
+    /// Lines a PageUp/PageDown press moves: half a screen. One line per
+    /// press makes multi-hundred-line scrollback (a resumed conversation)
+    /// effectively unnavigable — 900 presses to walk the history.
+    pub fn page_step(&self) -> usize {
+        (self.viewport_height / 2).max(1)
+    }
+
     /// The `[start, end)` range of `total` lines to show in a window of
     /// `height` rows, honoring `follow_bottom` and `scroll_offset`.
     pub fn window_range(&self, total: usize, height: usize) -> Range<usize> {
         if total <= height {
             tracing::debug!(total, height, "window_range: content fits, 0..total");
             return 0..total;
+        }
+        if self.pin_top {
+            tracing::debug!(total, height, "window_range: pinned to top");
+            return 0..height;
         }
         if self.follow_bottom {
             let start = total - height;
@@ -143,6 +197,51 @@ mod tests {
         // Past the top clamps to the first `height` lines.
         v.scroll_offset = 1000;
         assert_eq!(v.window_range(100, 30), 0..30);
+    }
+
+    /// Resume replay pins the view to the conversation head: the first
+    /// render shows 0..height, and PgDn moves one real page down from there.
+    #[test]
+    fn scroll_to_top_pins_window_to_head() {
+        let mut v = Viewport::new();
+        v.scroll_to_top();
+        assert!(!v.follow_bottom);
+        assert_eq!(v.window_range(942, 54), 0..54);
+        // PgDn from the pin: one real page down, still not following.
+        v.set_visible(942, 54);
+        assert!(v.scroll_down(20));
+        assert!(!v.follow_bottom);
+        assert_eq!(v.window_range(942, 54), 20..74);
+        // PgUp back to the top: one page up lands exactly at the head.
+        assert!(v.scroll_up(20));
+        assert_eq!(v.window_range(942, 54), 0..54);
+        // Further PgUp at the head is a no-op (clamped, view unchanged).
+        assert!(!v.scroll_up(20), "already at the head: no movement");
+        assert_eq!(v.window_range(942, 54), 0..54);
+    }
+
+    /// Sending a message while scrolled up snaps back to the newest lines.
+    #[test]
+    fn scroll_to_bottom_reenters_follow() {
+        let mut v = Viewport::new();
+        v.scroll_to_top();
+        v.scroll_to_bottom();
+        assert!(v.follow_bottom);
+        assert!(!v.pin_top);
+        assert_eq!(v.scroll_offset, 0);
+        assert_eq!(v.window_range(100, 30), 70..100);
+    }
+
+    /// PgUp/PgDn move half a screen per press (never zero): one line per
+    /// press made a resumed multi-hundred-line history unnavigable.
+    #[test]
+    fn page_step_is_half_viewport_with_floor_of_one() {
+        let mut v = Viewport::new();
+        assert_eq!(v.page_step(), 1, "degenerate height still moves");
+        v.viewport_height = 41;
+        assert_eq!(v.page_step(), 20);
+        v.viewport_height = 1;
+        assert_eq!(v.page_step(), 1);
     }
 
     #[test]
