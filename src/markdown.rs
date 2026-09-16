@@ -3,8 +3,8 @@
 //! Unlike tui-markdown (which is a "source viewer" that keeps `#` markers),
 //! this renderer produces rich output: headings are styled without markers,
 //! horizontal rules become separator lines, inline formatting is applied,
-//! tables get box-drawing borders, and LaTeX math is converted to Unicode
-//! symbols. It is self-contained — no dependency on any app state root —
+//! tables get box-drawing borders, and LaTeX math is converted to ASCII
+//! display forms. It is self-contained — no dependency on any app state root —
 //! so the TUI and any future renderer can reuse it.
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
@@ -47,47 +47,52 @@ pub fn line_plain_text(line: &Line<'_>) -> String {
     s
 }
 
-/// Convert common LaTeX commands to Unicode symbols for terminal display.
+/// Convert common LaTeX commands to ASCII display forms.
+///
+/// ASCII only — the previous Unicode-symbol targets (→ × ≤ α …) are
+/// East-Asian-Ambiguous or CJK-font-double-width, and CJK terminals render
+/// them 2 cells wide while the layout counts 1, so math-heavy text pushed
+/// rows off-screen. Readability loses a little; layout safety wins.
 fn latex_to_unicode(latex: &str) -> String {
     let mut s = latex.to_string();
     // Common symbols (order matters: longer patterns first)
-    s = s.replace("\\rightarrow", "→");
-    s = s.replace("\\leftarrow", "←");
-    s = s.replace("\\Rightarrow", "⇒");
-    s = s.replace("\\Leftarrow", "⇐");
-    s = s.replace("\\times", "×");
-    s = s.replace("\\div", "÷");
-    s = s.replace("\\pm", "±");
-    s = s.replace("\\mp", "∓");
-    s = s.replace("\\leq", "≤");
-    s = s.replace("\\geq", "≥");
-    s = s.replace("\\neq", "≠");
-    s = s.replace("\\approx", "≈");
-    s = s.replace("\\equiv", "≡");
-    s = s.replace("\\cdot", "·");
-    s = s.replace("\\ldots", "…");
-    s = s.replace("\\cdots", "⋯");
-    s = s.replace("\\infty", "∞");
-    s = s.replace("\\partial", "∂");
-    s = s.replace("\\nabla", "∇");
-    s = s.replace("\\sum", "∑");
-    s = s.replace("\\prod", "∏");
-    s = s.replace("\\int", "∫");
-    s = s.replace("\\alpha", "α");
-    s = s.replace("\\beta", "β");
-    s = s.replace("\\gamma", "γ");
-    s = s.replace("\\delta", "δ");
-    s = s.replace("\\epsilon", "ε");
-    s = s.replace("\\theta", "θ");
-    s = s.replace("\\lambda", "λ");
-    s = s.replace("\\mu", "μ");
-    s = s.replace("\\pi", "π");
-    s = s.replace("\\sigma", "σ");
-    s = s.replace("\\phi", "φ");
-    s = s.replace("\\omega", "ω");
-    s = s.replace("\\Delta", "Δ");
-    s = s.replace("\\Sigma", "Σ");
-    s = s.replace("\\Omega", "Ω");
+    s = s.replace("\\rightarrow", "->");
+    s = s.replace("\\leftarrow", "<-");
+    s = s.replace("\\Rightarrow", "=>");
+    s = s.replace("\\Leftarrow", "<=");
+    s = s.replace("\\times", "x");
+    s = s.replace("\\div", "/");
+    s = s.replace("\\pm", "+/-");
+    s = s.replace("\\mp", "-/+");
+    s = s.replace("\\leq", "<=");
+    s = s.replace("\\geq", ">=");
+    s = s.replace("\\neq", "!=");
+    s = s.replace("\\approx", "~=");
+    s = s.replace("\\equiv", "===");
+    s = s.replace("\\cdot", "*");
+    s = s.replace("\\ldots", "...");
+    s = s.replace("\\cdots", "...");
+    s = s.replace("\\infty", "inf");
+    s = s.replace("\\partial", "d");
+    s = s.replace("\\nabla", "grad");
+    s = s.replace("\\sum", "sum");
+    s = s.replace("\\prod", "prod");
+    s = s.replace("\\int", "int");
+    s = s.replace("\\alpha", "alpha");
+    s = s.replace("\\beta", "beta");
+    s = s.replace("\\gamma", "gamma");
+    s = s.replace("\\delta", "delta");
+    s = s.replace("\\epsilon", "epsilon");
+    s = s.replace("\\theta", "theta");
+    s = s.replace("\\lambda", "lambda");
+    s = s.replace("\\mu", "mu");
+    s = s.replace("\\pi", "pi");
+    s = s.replace("\\sigma", "sigma");
+    s = s.replace("\\phi", "phi");
+    s = s.replace("\\omega", "omega");
+    s = s.replace("\\Delta", "Delta");
+    s = s.replace("\\Sigma", "Sigma");
+    s = s.replace("\\Omega", "Omega");
     // Display commands: remove the command, keep the content
     s = s.replace("\\boxed{", "");
     s = s.replace("\\boxed(", "(");  // \boxed(...) → (...)
@@ -97,11 +102,11 @@ fn latex_to_unicode(latex: &str) -> String {
                   "\\textbf{", "\\textit{", "\\underline{"] {
         s = s.replace(*cmd, "");
     }
-    // \sqrt{n} → √n
+    // \sqrt{n} → sqrt(n)
     while let Some(start) = s.find("\\sqrt{") {
         if let Some(end) = s[start + 6..].find('}') {
             let inner = &s[start + 6..start + 6 + end];
-            let replacement = format!("√{}", inner);
+            let replacement = format!("sqrt({})", inner);
             s = format!("{}{}{}", &s[..start], replacement, &s[start + 6 + end + 1..]);
         } else {
             break;
@@ -304,7 +309,7 @@ impl MarkdownWriter {
                 self.flush_current_line();
                 self.current_line
                     .spans
-                    .push(Span::styled("  • ", Style::default().fg(Color::DarkGray)));
+                    .push(Span::styled("  - ", Style::default().fg(Color::DarkGray)));
             }
             Tag::BlockQuote(_) => {
                 self.flush_current_line();
@@ -727,34 +732,38 @@ mod tests {
 
     #[test]
     fn latex_to_unicode_conversion() {
-        assert_eq!(latex_to_unicode("\\sqrt{9}"), "√9");
-        assert_eq!(latex_to_unicode("\\sqrt{4}"), "√4");
-        assert_eq!(latex_to_unicode("2 \\times 3"), "2 × 3");
-        assert_eq!(latex_to_unicode("6 \\div 2"), "6 ÷ 2");
-        assert_eq!(latex_to_unicode("\\pi r^2"), "π r^2");
-        assert_eq!(latex_to_unicode("a \\neq b"), "a ≠ b");
-        assert_eq!(latex_to_unicode("\\alpha + \\beta"), "α + β");
-        assert_eq!(latex_to_unicode("\\sqrt{4} \\times 9"), "√4 × 9");
-        assert_eq!(latex_to_unicode("$(\\sqrt{4} \\times 9 - 10) \\times 3$"), "$(√4 × 9 - 10) × 3$");
+        assert_eq!(latex_to_unicode("\\sqrt{9}"), "sqrt(9)");
+        assert_eq!(latex_to_unicode("\\sqrt{4}"), "sqrt(4)");
+        assert_eq!(latex_to_unicode("2 \\times 3"), "2 x 3");
+        assert_eq!(latex_to_unicode("6 \\div 2"), "6 / 2");
+        assert_eq!(latex_to_unicode("\\pi r^2"), "pi r^2");
+        assert_eq!(latex_to_unicode("a \\neq b"), "a != b");
+        assert_eq!(latex_to_unicode("\\alpha + \\beta"), "alpha + beta");
+        assert_eq!(latex_to_unicode("\\sqrt{4} \\times 9"), "sqrt(4) x 9");
+        assert_eq!(
+            latex_to_unicode("$(\\sqrt{4} \\times 9 - 10) \\times 3$"),
+            "$(sqrt(4) x 9 - 10) x 3$"
+        );
     }
 
     #[test]
     fn math_latex_rendering() {
-        // Inline math should render with Unicode symbols
+        // Inline math should render with ASCII forms (Unicode symbols are
+        // CJK-double-width and break the terminal layout).
         let lines = render_markdown("计算步骤：$\\sqrt{4}=2$，$2\\times9=18$");
         let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        // Should have Unicode symbols, not raw LaTeX
-        assert!(text.contains("√4=2"), "should have √ symbol: {text}");
-        assert!(text.contains("2×9=18"), "should have × symbol: {text}");
+        // Should have converted forms, not raw LaTeX
+        assert!(text.contains("sqrt(4)=2"), "should convert sqrt: {text}");
+        assert!(text.contains("2x9=18"), "should convert times: {text}");
         // Math spans should be cyan
         let has_cyan = lines[0].spans.iter().any(|s| s.style.fg == Some(Color::Cyan));
         assert!(has_cyan, "math should be cyan colored");
 
         // Table with math cells
-        let table_md = "| 步骤 | 运算 | 结果 |\n|------|------|------|\n| ① | $\\sqrt{4}$ | $2$ |";
+        let table_md = "| 步骤 | 运算 | 结果 |\n|------|------|------|\n| 1 | $\\sqrt{4}$ | $2$ |";
         let lines = render_markdown(table_md);
         let body_line = &lines[3]; // 0: top, 1: header, 2: separator, 3: body, 4: bottom
         let body_text: String = body_line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(body_text.contains("√4"), "table should have √ symbol: {body_text}");
+        assert!(body_text.contains("sqrt(4)"), "table should convert sqrt: {body_text}");
     }
 }

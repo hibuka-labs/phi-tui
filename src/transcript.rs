@@ -109,13 +109,13 @@ impl<S> Transcript<S> {
     /// Echo the user's submitted message into the transcript, so the frame log
     /// and output buffer retain the human side of the conversation (the JSONL
     /// turn log already stores `user_input`, but the rendered transcript didn't
-    /// show it). `❯` on the first line, indented continuations after.
+    /// show it). `>` on the first line, indented continuations after.
     pub fn push_user(&mut self, text: &str) {
         let mut first = true;
         for (i, line) in wrap(text, self.wrap_width).into_iter().enumerate() {
             let display = if first {
                 first = false;
-                format!("❯ {line}")
+                format!("> {line}")
             } else {
                 format!("  {line}")
             };
@@ -173,7 +173,7 @@ impl<S> Transcript<S> {
                 for (j, wrapped) in wrap(original, self.wrap_width).into_iter().enumerate() {
                     let display = if kind == LineKind::User {
                         if j == 0 {
-                            format!("❯ {wrapped}")
+                            format!("> {wrapped}")
                         } else {
                             format!("  {wrapped}")
                         }
@@ -237,7 +237,7 @@ mod tests {
         let mut t = Transcript::new();
         t.set_wrap_width(10);
         t.push_user("abcdefghijk");
-        assert_eq!(texts(&t), vec!["❯ abcdefghij", "  k"]);
+        assert_eq!(texts(&t), vec!["> abcdefghij", "  k"]);
         assert_eq!(t.output[0].original.as_deref(), Some("abcdefghijk"));
     }
 
@@ -246,13 +246,13 @@ mod tests {
         let mut t = Transcript::new();
         t.set_wrap_width(20);
         t.push_user("abcdefghijk");
-        assert_eq!(texts(&t), vec!["❯ abcdefghijk"]);
+        assert_eq!(texts(&t), vec!["> abcdefghijk"]);
         // Narrower terminal: the user line re-wraps at the new width.
         t.set_wrap_width(10);
-        assert_eq!(texts(&t), vec!["❯ abcdefghij", "  k"]);
+        assert_eq!(texts(&t), vec!["> abcdefghij", "  k"]);
         // Same width again: no-op, lines untouched.
         t.set_wrap_width(10);
-        assert_eq!(texts(&t), vec!["❯ abcdefghij", "  k"]);
+        assert_eq!(texts(&t), vec!["> abcdefghij", "  k"]);
     }
 
     #[test]
@@ -263,7 +263,7 @@ mod tests {
         t.replace_plan(vec![plan_line("📋 目标B")]);
         // The second full-plan update replaced the first in place, so only one
         // plan block remains, anchored after the user line.
-        assert_eq!(texts(&t), vec!["❯ hello", "📋 目标B"]);
+        assert_eq!(texts(&t), vec!["> hello", "📋 目标B"]);
     }
 
     #[test]

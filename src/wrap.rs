@@ -37,12 +37,14 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 /// Collapse whitespace and truncate to a single line of at most `max` chars.
+/// ASCII `...` (not `…`): CJK fonts render `…` double-width while callers
+/// budget single-width cells — the drift pushes rows off-screen.
 pub fn one_line(s: &str, max: usize) -> String {
     let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {
         flat
     } else {
-        flat.chars().take(max).collect::<String>() + "…"
+        flat.chars().take(max.saturating_sub(3)).collect::<String>() + "..."
     }
 }
 

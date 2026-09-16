@@ -457,7 +457,16 @@ impl CompletableItem for (String, String) {
 
     fn matches_query(&self, query: &str) -> bool {
         let q = query.to_lowercase();
-        self.0.to_lowercase().contains(&q) || self.1.to_lowercase().contains(&q)
+        // 名字前缀匹配（始终生效）：输入 "r" 只匹配 r 开头的 skill
+        if self.0.to_lowercase().starts_with(&q) {
+            return true;
+        }
+        // 描述子串匹配（仅 CJK 查询时）：输入 "恢复" 能匹配 "切换到其他会话"
+        // 纯 ASCII 查询不走描述匹配，避免 "rev" 匹配 "Request a code review" 这类噪音
+        if !q.is_ascii() && q.chars().count() >= 2 {
+            return self.1.to_lowercase().contains(&q);
+        }
+        false
     }
 }
 

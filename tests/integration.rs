@@ -124,7 +124,8 @@ fn wrap_is_cjk_aware_and_one_line_truncates() {
     for piece in wrap(line, 6) {
         assert!(piece.width() <= 6, "piece exceeds 6 columns: {piece:?}");
     }
-    // one_line truncates by chars (not columns) and marks the cut.
+    // one_line truncates by chars and marks the cut. ASCII `...` (not `…`):
+    // CJK fonts render `…` double-width, breaking the column budget.
     let clipped = phi_tui::wrap::one_line(line, 6);
-    assert_eq!(clipped, "中文内容每两…");
+    assert_eq!(clipped, "中文内...");
 }
