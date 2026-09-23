@@ -34,13 +34,25 @@ pub enum LineKind {
     User,
 }
 
-/// Structured detail for a tool call, rendered as a multi-line visual block.
-/// Attached to `OutputLine.detail`; `None` for non-file tools (zero impact on
-/// existing code paths).
+/// Structured detail rendered as a multi-line visual block (inline diff,
+/// folded thought segment). Attached to `OutputLine.detail`; `None` renders
+/// `text` alone.
 #[derive(Debug, Clone)]
-pub enum ToolDetail {
+pub enum LineDetail {
     /// Inline diff for `edit_file` / `write_file`.
     Diff { path: String, hunks: Vec<DiffHunk> },
+    /// A folded thinking segment: full raw text plus counts precomputed at
+    /// flush time. The renderer shows a one-line summary by default; the
+    /// product's expand toggle re-wraps `raw` at the current width.
+    Thought {
+        raw: String,
+        /// Wrapped line count at flush-time width (cosmetic, shown in the
+        /// summary; may drift after resize — expanded rendering re-wraps).
+        line_count: usize,
+        /// Total characters in `raw` (precomputed for the token estimate in
+        /// titles/summaries; never re-derived at render time).
+        char_count: usize,
+    },
 }
 
 /// A diff hunk: a group of related changes with a unified-diff header.
@@ -90,8 +102,8 @@ pub struct OutputLine<S = ()> {
     /// only on the *first* output line of the block; subsequent lines have
     /// `original = None` and are replaced during re-wrap.
     pub original: Option<String>,
-    /// Structured detail for multi-line tool output (e.g. inline diff).
+    /// Structured detail for multi-line blocks (inline diff, folded thought).
     /// When `Some`, the renderer expands this into a visual block instead of
-    /// rendering `text` alone. `None` for all non-file tools.
-    pub detail: Option<ToolDetail>,
+    /// rendering `text` alone.
+    pub detail: Option<LineDetail>,
 }

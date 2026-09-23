@@ -3,7 +3,7 @@
 //! 从 `App` god-object 抽出（此前是 `selection`/`context_menu` 字段 +
 //! `handle_mouse` 里的选择分支、`selection_range`/`is_selected`/
 //! `selection_text`/`clear_selection`）。屏幕坐标 → 行号的命中测试依赖渲染
-//! 产物（`visual_to_output` 等），留在 App；这里只管理「选了什么 / 菜单开没
+//! 产物（[`crate::visual::VisualMap`），留在 App；这里只管理「选了什么 / 菜单开没
 //! 开 / 范围与文本」。
 
 use crossterm::event::{MouseButton, MouseEventKind};

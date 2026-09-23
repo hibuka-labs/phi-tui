@@ -36,6 +36,8 @@ pub mod mention;
 pub mod picker;
 pub mod selection;
 pub mod stream;
+pub mod tail_panel;
 pub mod transcript;
 pub mod viewport;
+pub mod visual;
 pub mod wrap;

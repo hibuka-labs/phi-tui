@@ -18,7 +18,7 @@ dependencies; `ratatui` / `crossterm` / `pulldown-cmark` / `unicode-width` /
 
 | Module | What it gives you |
 |---|---|
-| `lines` | The line model: `OutputLine<S>`, `LineKind`, `ToolDetail`, `DiffHunk`, generic `SpanSpec<S>` styled byte-ranges |
+| `lines` | The line model: `OutputLine<S>`, `LineKind`, `LineDetail` (Diff / Thought), `DiffHunk`, generic `SpanSpec<S>` styled byte-ranges |
 | `transcript` | Committed transcript buffer + anchored replaceable block + re-wrap on width change |
 | `stream` | Streaming-tail state machine: deltas in, whole lines out, O(new bytes) rendering |
 | `wrap` | CJK-aware hard-wrap (`wrap` / `one_line`) + incremental `WrapCache` |
@@ -28,6 +28,8 @@ dependencies; `ratatui` / `crossterm` / `pulldown-cmark` / `unicode-width` /
 | `picker` / `completer` / `mention` | Shared completion state machine + `@` path completer (pure fs) |
 | `input` | Multi-line `Composer` (Shift+Enter newline, paste-safe) |
 | `diff` | Hand-written LCS line diff → unified hunks |
+| `tail_panel` | Stateless bordered tail window (title + last-N rows in) for watching a live stream |
+| `visual` | Visual-row map + block-aware scroll anchor (multi-row detail blocks keep their intra-block offset) |
 
 The line model is generic over your style token: `OutputLine<S = ()>` —
 use `OutputLine<()>` for plain text, or pin your own token (colors, semantic

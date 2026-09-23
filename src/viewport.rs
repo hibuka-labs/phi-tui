@@ -38,7 +38,47 @@ impl Viewport {
     }
 
     /// Record the last rendered total + pane height (from `render_output`).
+    /// Head-index variant of [`Self::set_visible_anchored`] (`preferred_head`
+    /// = `None`).
     pub fn set_visible(&mut self, total: usize, height: usize) {
+        self.set_visible_anchored(total, height, None);
+    }
+
+    /// Record the last rendered total + pane height, keeping the reader's
+    /// place while the flow reflows underneath them.
+    ///
+    /// `preferred_head` is the flow row (in the NEW numbering) that should sit
+    /// at the window top — the caller resolves it from the previous frame's
+    /// visual→output mapping, so mid-transcript reflows (Ctrl+O fold/expand,
+    /// resize re-wrap) keep the place by CONTENT, not by raw index. `None`
+    /// falls back to holding the raw head index: right for tail-only mutation
+    /// (streaming commits, thinking-panel placeholder rows) and for tail rows
+    /// the caller cannot map to an output line.
+    ///
+    /// Same-frame manual scrolls compose: they adjust `scroll_offset` first,
+    /// and this preserves their new head through the size change. Landing on
+    /// offset `0` re-enters follow-bottom — visually at the bottom but not
+    /// following would strand the next tail growth outside the window.
+    pub fn set_visible_anchored(
+        &mut self,
+        total: usize,
+        height: usize,
+        preferred_head: Option<usize>,
+    ) {
+        if !self.follow_bottom && !self.pin_top && self.viewport_height > 0 {
+            let new_max = total.saturating_sub(height);
+            let target_head = match preferred_head {
+                Some(head) => head,
+                None => {
+                    let prev_max = self.rendered_total.saturating_sub(self.viewport_height);
+                    prev_max - self.scroll_offset.min(prev_max)
+                }
+            };
+            self.scroll_offset = new_max.saturating_sub(target_head);
+            if self.scroll_offset == 0 {
+                self.follow_bottom = true;
+            }
+        }
         self.rendered_total = total;
         self.viewport_height = height;
     }
@@ -284,5 +324,68 @@ mod tests {
         assert_eq!(v.scroll_offset, 0);
         // Already at bottom: no-op.
         assert!(!v.scroll_down(1));
+    }
+
+    #[test]
+    fn set_visible_holds_head_when_tail_grows() {
+        let mut v = Viewport::new();
+        v.set_visible(100, 20);
+        v.scroll_up(10); // head at 70
+        assert_eq!(v.window_range(100, 20), 70..90);
+        v.set_visible(108, 20); // +8 rows appended at the tail
+        assert_eq!(
+            v.window_range(108, 20),
+            70..90,
+            "history view must not jump when the tail grows"
+        );
+    }
+
+    #[test]
+    fn set_visible_holds_head_when_tail_shrinks() {
+        let mut v = Viewport::new();
+        v.set_visible(100, 20);
+        v.scroll_up(10);
+        v.set_visible(93, 20); // -7 rows (e.g. thinking-panel rows collapse)
+        assert_eq!(v.window_range(93, 20), 70..90);
+    }
+
+    #[test]
+    fn set_visible_follow_bottom_keeps_tailing() {
+        let mut v = Viewport::new();
+        v.set_visible(100, 20);
+        v.set_visible(108, 20);
+        assert_eq!(v.window_range(108, 20), 88..108);
+    }
+
+    #[test]
+    fn same_frame_scroll_and_tail_growth_compose() {
+        let mut v = Viewport::new();
+        v.set_visible(100, 20);
+        v.scroll_up(5); // head at 75
+        v.set_visible(108, 20); // growth absorbed, scroll kept
+        assert_eq!(v.window_range(108, 20), 75..95);
+    }
+
+    #[test]
+    fn set_visible_anchored_prefers_content_head() {
+        let mut v = Viewport::new();
+        v.set_visible(100, 20);
+        v.scroll_up(10); // head at 70
+        // Middle reflow: the row that was at 70 is now at 75.
+        v.set_visible_anchored(120, 20, Some(75));
+        assert_eq!(v.window_range(120, 20), 75..95);
+    }
+
+    #[test]
+    fn shrink_clamp_reenters_follow_bottom() {
+        let mut v = Viewport::new();
+        v.set_visible(100, 20);
+        v.scroll_up(3); // barely scrolled
+        v.set_visible(80, 20); // huge tail collapse clamps the offset to 0
+        assert_eq!(v.scroll_offset, 0);
+        assert!(
+            v.follow_bottom,
+            "at the bottom must mean following, or the next tail growth strands"
+        );
     }
 }

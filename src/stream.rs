@@ -6,7 +6,7 @@
 //! now unit-testable standalone; `App` owns one instance and commits the returned
 //! [`OutputLine`]s into its transcript.
 
-use crate::lines::{LineKind, OutputLine};
+use crate::lines::{LineDetail, LineKind, OutputLine};
 use crate::wrap::WrapCache;
 use std::marker::PhantomData;
 
@@ -139,35 +139,77 @@ impl<S> StreamState<S> {
         }
     }
 
+    /// Commit the pending thought. Long segments (more than 2 wrapped lines)
+    /// collapse into ONE folded `OutputLine` carrying a `LineDetail::Thought`
+    /// (full raw + precomputed counts); the renderer decides folded vs
+    /// expanded. Short segments keep the legacy per-line shape — folding a
+    /// one-liner into a summary row would be noise.
     fn flush_thought(&mut self) -> Vec<OutputLine<S>> {
         if self.pending_thought.is_empty() {
             return Vec::new();
         }
         let original = self.pending_thought.clone();
         self.pending_thought.clear();
-        let prefix = self
+        let agent_prefix = self
             .pending_agent
             .take()
             .map(|p| format!("[{p}] "))
             .unwrap_or_default();
-        let prefix = prefix.as_str();
-        let mut out = Vec::with_capacity(self.tail_wrap.lines().len());
-        for (i, line) in self.tail_wrap.lines().iter().enumerate() {
-            let text = if i == 0 && !prefix.is_empty() {
-                format!("{prefix}{line}")
-            } else {
-                line.clone()
-            };
-            out.push(OutputLine {
-                spans: None,
-                original: if i == 0 { Some(original.clone()) } else { None },
-                detail: None,
-                text,
-                kind: LineKind::Thought,
-            });
-        }
+        let wrapped: Vec<String> = self.tail_wrap.lines().to_vec();
         self.tail_wrap.reset();
-        out
+
+        // Short segment: legacy per-line commit (no detail).
+        if wrapped.len() <= 2 {
+            let mut out = Vec::with_capacity(wrapped.len());
+            for (i, line) in wrapped.iter().enumerate() {
+                let text = if i == 0 {
+                    format!("{agent_prefix}{line}")
+                } else {
+                    line.clone()
+                };
+                out.push(OutputLine {
+                    spans: None,
+                    original: if i == 0 { Some(original.clone()) } else { None },
+                    detail: None,
+                    text,
+                    kind: LineKind::Thought,
+                });
+            }
+            return out;
+        }
+
+        // Long segment: one folded line. `text` is the first-line preview
+        // (style-blind plain text for copy/frame capture); the summary line
+        // is composed by the renderer from the counts in `detail` — the data
+        // layer does not own product phrasing. `original` stays None: its
+        // only consumer, `Transcript::rewrap_output`, would unfold this line
+        // on resize and drop `detail`; `detail.raw` is the single source.
+        let char_count = original.chars().count();
+        let mut first = wrapped[0].clone();
+        if !agent_prefix.is_empty() {
+            first = format!("{agent_prefix}{first}");
+        }
+        // `raw` carries the same `[{agent}] ` attribution as `text`: expansion
+        // wraps `raw`, so the author stays visible there, and the live
+        // loose-mode stream (same prefix on its first row) does not drop it at
+        // the commit seam. `char_count` counts the thought itself (prefix
+        // chrome excluded) so the tok estimate stays about content.
+        let raw = if agent_prefix.is_empty() {
+            original
+        } else {
+            format!("{agent_prefix}{original}")
+        };
+        vec![OutputLine {
+            spans: None,
+            original: None,
+            detail: Some(LineDetail::Thought {
+                raw,
+                line_count: wrapped.len(),
+                char_count,
+            }),
+            text: first,
+            kind: LineKind::Thought,
+        }]
     }
 
     fn flush_text(&mut self) -> Vec<OutputLine<S>> {
@@ -259,5 +301,89 @@ mod tests {
         assert_eq!(flushed.len(), 1);
         assert_eq!(flushed[0].kind, LineKind::Normal);
         assert_eq!(flushed[0].text, "root text");
+    }
+
+    #[test]
+    fn long_thought_flushes_to_one_folded_line() {
+        let mut st: StreamState = StreamState::new(20);
+        let body = "think ".repeat(30); // 180 chars, wraps at width 20
+        st.push_thought(&body, None);
+        let flushed = st.flush();
+        assert_eq!(flushed.len(), 1, "long thought folds to ONE line");
+        let l = &flushed[0];
+        assert_eq!(l.kind, LineKind::Thought);
+        assert_eq!(l.original, None,
+            "folded line must NOT carry original: rewrap_output would \
+             unfold it on resize and drop detail; detail.raw is the source");
+        // text = style-blind first-line preview (no agent prefix here).
+        let expected_first = crate::wrap::wrap(&body, 20)[0].clone();
+        assert_eq!(l.text, expected_first);
+        match &l.detail {
+            Some(LineDetail::Thought { raw, line_count, char_count }) => {
+                assert_eq!(raw, &body);
+                assert_eq!(*char_count, body.chars().count());
+                assert_eq!(*line_count, crate::wrap::wrap(&body, 20).len());
+            }
+            other => panic!("expected folded Thought detail, got {other:?}"),
+        }
+        assert!(st.tail_lines().is_none(), "pending consumed");
+    }
+
+    #[test]
+    fn folded_line_carries_agent_prefix_in_text() {
+        let mut st: StreamState = StreamState::new(20);
+        st.push_thought(&"abc ".repeat(40), Some("root/searcher"));
+        let flushed = st.flush();
+        assert_eq!(flushed.len(), 1);
+        assert!(flushed[0].text.starts_with("[root/searcher] "));
+        match &flushed[0].detail {
+            Some(LineDetail::Thought { raw, .. }) => assert!(
+                raw.starts_with("[root/searcher] "),
+                "detail.raw keeps the author: expansion wraps raw, and the                  loose-mode stream must not drop the prefix at the seam"
+            ),
+            other => panic!("expected folded Thought detail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn short_thought_keeps_plain_lines() {
+        let mut st: StreamState = StreamState::new(100);
+        st.push_thought("hmm ok", None);
+        let flushed = st.flush();
+        assert_eq!(flushed.len(), 1);
+        assert!(flushed[0].detail.is_none(), "short thought: legacy shape");
+        assert_eq!(flushed[0].text, "hmm ok");
+    }
+
+    #[test]
+    fn thought_to_text_interleave_folds_each_segment() {
+        let mut st: StreamState = StreamState::new(10);
+        st.push_thought(&"abcdef ".repeat(20), None);
+        let flushed = st.push_text("answer", None); // implicit thought flush
+        assert_eq!(flushed.len(), 1);
+        assert!(matches!(flushed[0].detail, Some(LineDetail::Thought { .. })));
+        let flushed = st.flush(); // the prose segment
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(flushed[0].kind, LineKind::Normal);
+    }
+
+    #[test]
+    fn exactly_two_wrapped_lines_stay_legacy() {
+        let mut st: StreamState = StreamState::new(20);
+        let body = "x".repeat(40); // wraps to exactly 2 lines
+        st.push_thought(&body, None);
+        let flushed = st.flush();
+        assert_eq!(flushed.len(), 2, "boundary: 2 lines = legacy shape");
+        assert!(flushed.iter().all(|l| l.detail.is_none()));
+        assert_eq!(flushed[0].original.as_deref(), Some(body.as_str()));
+    }
+
+    #[test]
+    fn exactly_three_wrapped_lines_fold() {
+        let mut st: StreamState = StreamState::new(20);
+        st.push_thought(&"x".repeat(41), None); // wraps to exactly 3 lines
+        let flushed = st.flush();
+        assert_eq!(flushed.len(), 1, "boundary: 3 lines = folded");
+        assert!(matches!(flushed[0].detail, Some(LineDetail::Thought { .. })));
     }
 }
