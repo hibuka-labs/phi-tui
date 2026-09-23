@@ -282,6 +282,11 @@ impl MentionCompleter {
                         format!("{new_prefix}/")
                     };
                     self.refresh_entries();
+                    // Focus the entered directory itself — the synthetic row
+                    // at index 0 renders the path we just descended into.
+                    // Without this reset the highlight keeps the directory's
+                    // old index and lands on an unrelated child.
+                    self.inner.picker.selected = 0;
                     CompleterAction::Continue
                 } else {
                     // File or synthetic entry → select directly
@@ -665,6 +670,35 @@ mod tests {
         assert_eq!(completer.trigger(), '@');
         assert!(completer.is_empty());
         assert_eq!(completer.workspace_root(), &root);
+    }
+
+    /// Throwaway temp dir (same pattern as the mention.rs tests).
+    fn scratch(tag: &str) -> PathBuf {
+        let path = std::env::temp_dir()
+            .join(format!("phi-tui-completer-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn enter_on_directory_descends_and_focuses_it() {
+        let root = scratch("nav");
+        std::fs::create_dir_all(root.join("a_dir")).unwrap();
+        std::fs::write(root.join("z.txt"), "x").unwrap();
+
+        let mut m = MentionCompleter::new(root.clone());
+        // [synthetic, a_dir, z.txt] — arrow onto the directory.
+        m.handle_key(KeyCode::Down);
+        assert_eq!(m.entries()[1].name, "a_dir");
+        assert_eq!(m.selected_index(), 1);
+
+        // Enter descends into a_dir; focus lands on the synthetic row (the
+        // directory itself), not the directory's old index.
+        assert!(matches!(m.handle_key(KeyCode::Enter), CompleterAction::Continue));
+        assert_eq!(m.prefix(), "a_dir/");
+        assert_eq!(m.selected_index(), 0);
+        assert!(m.entries()[0].synthetic);
     }
 
     #[test]
