@@ -5,6 +5,10 @@
 //! state machine, CJK-aware wrapping, a scroll viewport, mouse selection +
 //! copy, a markdown renderer, and the `@`/`/` completion pickers.
 //!
+//! Completion popups render through [`popup_list::PopupList`], whose band style
+//! ([`popup_list::PopupStyle`]) is injected by the product — see the style
+//! contract in that module for how widgets take configuration.
+//!
 //! Built for the ratatui 0.30 + crossterm 0.28 ecosystem. Zero framework
 //! dependencies — no agent semantics live here (no approvals, tools, or
 //! sub-agents); products wire those on top.
@@ -34,6 +38,7 @@ pub mod lines;
 pub mod markdown;
 pub mod mention;
 pub mod picker;
+pub mod popup_list;
 pub mod selection;
 pub mod stream;
 pub mod tail_panel;

@@ -48,6 +48,101 @@ pub fn one_line(s: &str, max: usize) -> String {
     }
 }
 
+/// Which end of a string an elision keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Elide {
+    /// Keep the front: `描述前缀...`.
+    Head,
+    /// Keep the back: `.../bg_wake_tests.rs`. With `sep`, whole `sep`-separated
+    /// components are kept (right to left) so the tail stops on a boundary.
+    Tail { sep: Option<char> },
+}
+
+/// Truncate `s` to at most `max_cols` display columns, marking the cut with
+/// ASCII `...` (CJK fonts render `…` double-width — see [`one_line`]).
+///
+/// Width-aware (CJK = 2 columns, combining marks = 0) and char-boundary safe:
+/// the returned string never splits a char and never exceeds `max_cols`.
+pub fn elide(s: &str, max_cols: usize, mode: Elide) -> String {
+    const DOTS: &str = "...";
+    const DOTS_W: usize = 3;
+    let max_cols = max_cols.max(1);
+    if display_width(s) <= max_cols {
+        return s.to_string();
+    }
+    if max_cols <= DOTS_W {
+        return ".".repeat(max_cols);
+    }
+    let budget = max_cols - DOTS_W;
+    match mode {
+        Elide::Head => format!("{}{DOTS}", take_width_prefix(s, budget)),
+        Elide::Tail { sep } => format!("{DOTS}{}", take_tail(s, budget, sep)),
+    }
+}
+
+/// Terminal columns used by `s`.
+fn display_width(s: &str) -> usize {
+    s.chars().map(|c| c.width().unwrap_or(0)).sum()
+}
+
+/// Longest char-boundary prefix of `s` that fits in `budget` columns.
+fn take_width_prefix(s: &str, budget: usize) -> &str {
+    let mut used = 0usize;
+    let mut end = 0usize;
+    for (i, c) in s.char_indices() {
+        let cw = c.width().unwrap_or(0);
+        if used + cw > budget {
+            break;
+        }
+        used += cw;
+        end = i + c.len_utf8();
+    }
+    &s[..end]
+}
+
+/// Tail of `s` for the elision, at most `budget` columns. With `sep`, whole
+/// components are taken right-to-left (joined by `sep`, leading `sep`
+/// included); at least one non-empty component must fit — a trailing `sep`
+/// yields an empty final component that would otherwise satisfy the fit check
+/// on its own and collapse the row to a bare `sep`. When no component fits,
+/// falls back to a plain char-level tail that fills the budget.
+fn take_tail(s: &str, budget: usize, sep: Option<char>) -> String {
+    if let Some(sep) = sep
+        && budget >= 2
+    {
+        // One column is reserved for the leading `sep` after the dots.
+        let comp_budget = budget - 1;
+        let mut parts: Vec<&str> = Vec::new();
+        let mut used = 0usize;
+        for comp in s.split(sep).rev() {
+            let extra = display_width(comp) + if parts.is_empty() { 0 } else { sep.width().unwrap_or(0) };
+            if used + extra > comp_budget {
+                break;
+            }
+            used += extra;
+            parts.push(comp);
+        }
+        if parts.iter().any(|p| !p.is_empty()) {
+            parts.reverse();
+            let mut out = String::from(sep);
+            out.push_str(&parts.join(&sep.to_string()));
+            return out;
+        }
+    }
+    // Degrade: fill the budget with the plain tail.
+    let mut used = 0usize;
+    let mut start = s.len();
+    for (i, c) in s.char_indices().rev() {
+        let cw = c.width().unwrap_or(0);
+        if used + cw > budget {
+            break;
+        }
+        used += cw;
+        start = i;
+    }
+    s[start..].to_string()
+}
+
 /// Incremental hard-wrap accumulator for the streaming tail.
 ///
 /// The output pane renders the live (uncommitted) streaming text every frame.
@@ -163,5 +258,69 @@ mod tests {
                 assert_eq!(incr.lines(), expected.as_slice(), "char-extend {s:?} @{width}");
             }
         }
+    }
+
+    #[test]
+    fn elide_keeps_short_strings_intact() {
+        assert_eq!(elide("src/main.rs", 20, Elide::Head), "src/main.rs");
+        assert_eq!(elide("src/main.rs", 20, Elide::Tail { sep: Some('/') }), "src/main.rs");
+        // Exactly at budget: untouched.
+        assert_eq!(elide("abcde", 5, Elide::Head), "abcde");
+    }
+
+    #[test]
+    fn elide_head_keeps_front() {
+        assert_eq!(elide("abcdefghij", 8, Elide::Head), "abcde...");
+    }
+
+    #[test]
+    fn elide_counts_wide_cjk_as_two_columns() {
+        // "你好世界" = 8 columns; budget 7 = "..." (3) + 2 glyphs (4).
+        assert_eq!(elide("你好世界", 7, Elide::Head), "你好...");
+        // Interior budget is 2: "ab" fills it exactly, so 你 (2 wide) is dropped
+        // whole rather than squeezed into one column.
+        assert_eq!(elide("ab你好", 5, Elide::Head), "ab...");
+    }
+
+    #[test]
+    fn elide_tail_prefers_whole_path_components() {
+        let p = "src/ui/handlers/runtime/bg_wake_tests.rs"; // 40 columns
+        // 28 = "..." (3) + "/runtime/bg_wake_tests.rs" (25).
+        assert_eq!(elide(p, 28, Elide::Tail { sep: Some('/') }), ".../runtime/bg_wake_tests.rs");
+        // 20 = "..." (3) + "/bg_wake_tests.rs" (17).
+        assert_eq!(elide(p, 20, Elide::Tail { sep: Some('/') }), ".../bg_wake_tests.rs");
+    }
+
+    #[test]
+    fn elide_tail_degrades_when_no_component_fits() {
+        let p = "src/ui/handlers/runtime/bg_wake_tests.rs";
+        // Budget 12: even the 16-column basename is too wide, so the cut lands
+        // mid-component and fills the budget.
+        let out = elide(p, 12, Elide::Tail { sep: Some('/') });
+        assert_eq!(out, "..._tests.rs");
+        assert_eq!(unicode_width::UnicodeWidthStr::width(out.as_str()), 12);
+    }
+
+    #[test]
+    fn elide_degenerate_budgets_never_panic() {
+        assert_eq!(elide("abcdef", 3, Elide::Head), "...");
+        assert_eq!(elide("abcdef", 1, Elide::Head), ".");
+        assert_eq!(elide("你好", 1, Elide::Tail { sep: None }), ".");
+    }
+
+    #[test]
+    fn elide_tail_ignores_a_trailing_separator() {
+        // A trailing `sep` yields an empty final component costing 0 columns.
+        // Letting it alone satisfy the component check collapsed the row to a
+        // bare `".../"`; it must fall through to the char-level tail instead.
+        assert_eq!(
+            elide("superlongname/", 9, Elide::Tail { sep: Some('/') }),
+            "...gname/"
+        );
+        // When a real component does fit, the trailing `sep` is still kept.
+        assert_eq!(
+            elide("aaaa/bbbb/cccccccc/", 14, Elide::Tail { sep: Some('/') }),
+            ".../cccccccc/"
+        );
     }
 }
