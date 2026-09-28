@@ -62,11 +62,14 @@ pub enum Elide {
 /// ASCII `...` (CJK fonts render `…` double-width — see [`one_line`]).
 ///
 /// Width-aware (CJK = 2 columns, combining marks = 0) and char-boundary safe:
-/// the returned string never splits a char and never exceeds `max_cols`.
+/// the returned string never splits a char and never exceeds `max_cols`. A
+/// zero budget yields an empty string — the only thing that fits.
 pub fn elide(s: &str, max_cols: usize, mode: Elide) -> String {
     const DOTS: &str = "...";
     const DOTS_W: usize = 3;
-    let max_cols = max_cols.max(1);
+    if max_cols == 0 {
+        return String::new();
+    }
     if display_width(s) <= max_cols {
         return s.to_string();
     }
@@ -77,6 +80,22 @@ pub fn elide(s: &str, max_cols: usize, mode: Elide) -> String {
     match mode {
         Elide::Head => format!("{}{DOTS}", take_width_prefix(s, budget)),
         Elide::Tail { sep } => format!("{DOTS}{}", take_tail(s, budget, sep)),
+    }
+}
+
+/// Right-pad `s` with spaces out to `cols` display columns — the padding
+/// counterpart to [`elide`], for laying fixed-width table columns out.
+///
+/// Pads by terminal columns, not chars: `format!("{:<w$}", s)` counts chars,
+/// so a CJK cell (2 columns per char) overshoots and shoves the next column
+/// out of alignment. Never truncates — pass [`elide`] first if the text must
+/// also fit; text already wider than `cols` comes back unchanged.
+pub fn pad_cols(s: &str, cols: usize) -> String {
+    let used = display_width(s);
+    if used >= cols {
+        s.to_string()
+    } else {
+        format!("{s}{}", " ".repeat(cols - used))
     }
 }
 
@@ -306,6 +325,29 @@ mod tests {
         assert_eq!(elide("abcdef", 3, Elide::Head), "...");
         assert_eq!(elide("abcdef", 1, Elide::Head), ".");
         assert_eq!(elide("你好", 1, Elide::Tail { sep: None }), ".");
+    }
+
+    #[test]
+    fn elide_returns_empty_for_a_zero_budget() {
+        // A 0-column budget holds nothing. Clamping the budget up to 1 handed
+        // back a 1-column `.`, which exceeds `max_cols` and breaks the
+        // "never exceeds `max_cols`" contract.
+        assert_eq!(elide("abcdef", 0, Elide::Head), "");
+        assert_eq!(elide("abcdef", 0, Elide::Tail { sep: Some('/') }), "");
+        assert_eq!(elide("", 0, Elide::Head), "");
+    }
+
+    #[test]
+    fn pad_cols_pads_in_display_columns_not_chars() {
+        assert_eq!(pad_cols("ab", 5), "ab   ");
+        // 2 CJK chars = 4 columns, so a 5-column cell needs 1 space — not 3.
+        assert_eq!(pad_cols("你好", 5), "你好 ");
+        // Zero-width text is padded from column 0.
+        assert_eq!(pad_cols("", 3), "   ");
+        // Already at or over budget: unchanged. `pad_cols` never truncates —
+        // that is `elide`'s job, and slicing here would panic mid-char.
+        assert_eq!(pad_cols("abcdef", 3), "abcdef");
+        assert_eq!(pad_cols("你好你好", 3), "你好你好");
     }
 
     #[test]
