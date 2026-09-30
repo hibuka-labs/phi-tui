@@ -95,11 +95,22 @@ fn latex_to_unicode(latex: &str) -> String {
     s = s.replace("\\Omega", "Omega");
     // Display commands: remove the command, keep the content
     s = s.replace("\\boxed{", "");
-    s = s.replace("\\boxed(", "(");  // \boxed(...) → (...)
+    s = s.replace("\\boxed(", "("); // \boxed(...) → (...)
     // Size/style commands: just remove
-    for cmd in &["\\large", "\\Large", "\\LARGE", "\\huge", "\\Huge",
-                  "\\small", "\\normalsize", "\\bfseries", "\\itshape",
-                  "\\textbf{", "\\textit{", "\\underline{"] {
+    for cmd in &[
+        "\\large",
+        "\\Large",
+        "\\LARGE",
+        "\\huge",
+        "\\Huge",
+        "\\small",
+        "\\normalsize",
+        "\\bfseries",
+        "\\itshape",
+        "\\textbf{",
+        "\\textit{",
+        "\\underline{",
+    ] {
         s = s.replace(*cmd, "");
     }
     // \sqrt{n} → sqrt(n)
@@ -107,7 +118,12 @@ fn latex_to_unicode(latex: &str) -> String {
         if let Some(end) = s[start + 6..].find('}') {
             let inner = &s[start + 6..start + 6 + end];
             let replacement = format!("sqrt({})", inner);
-            s = format!("{}{}{}", &s[..start], replacement, &s[start + 6 + end + 1..]);
+            s = format!(
+                "{}{}{}",
+                &s[..start],
+                replacement,
+                &s[start + 6 + end + 1..]
+            );
         } else {
             break;
         }
@@ -225,10 +241,7 @@ impl MarkdownWriter {
             Event::Code(code) => self.inline_code(&code),
             // Math events: render LaTeX as Unicode symbols (cyan, like inline code)
             Event::InlineMath(math) => {
-                let span = Span::styled(
-                    latex_to_unicode(&math),
-                    Style::default().fg(Color::Cyan),
-                );
+                let span = Span::styled(latex_to_unicode(&math), Style::default().fg(Color::Cyan));
                 if let Some(ref mut ts) = self.table_state {
                     ts.current_cell.push(span);
                 } else {
@@ -296,7 +309,10 @@ impl MarkdownWriter {
                 } else {
                     format!("  │ [{}]", self.code_lang)
                 };
-                self.push_line(Line::from(Span::styled(header, Style::default().fg(Color::DarkGray))));
+                self.push_line(Line::from(Span::styled(
+                    header,
+                    Style::default().fg(Color::DarkGray),
+                )));
             }
             Tag::List(_) => {
                 self.flush_current_line();
@@ -364,7 +380,10 @@ impl MarkdownWriter {
             }
             Tag::Link { dest_url, .. } => {
                 // Links: cyan underline
-                self.inline_style = self.inline_style.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
+                self.inline_style = self
+                    .inline_style
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::UNDERLINED);
                 // Store URL for potential tooltip/hover (future)
                 let _ = dest_url;
             }
@@ -450,10 +469,9 @@ impl MarkdownWriter {
                 self.inline_style = Style::default();
             }
             TagEnd::Image => {
-                self.current_line.spans.push(Span::styled(
-                    "]",
-                    Style::default().fg(Color::DarkGray),
-                ));
+                self.current_line
+                    .spans
+                    .push(Span::styled("]", Style::default().fg(Color::DarkGray)));
             }
             _ => {}
         }
@@ -482,10 +500,7 @@ impl MarkdownWriter {
 
     fn inline_code(&mut self, code: &str) {
         // Inline code: cyan color (like Claude Code), no backticks, no background
-        let span = Span::styled(
-            code.to_string(),
-            Style::default().fg(Color::Cyan),
-        );
+        let span = Span::styled(code.to_string(), Style::default().fg(Color::Cyan));
         if let Some(ref mut ts) = self.table_state {
             ts.current_cell.push(span);
         } else {
@@ -508,10 +523,7 @@ impl MarkdownWriter {
         for row in &ts.header {
             for (col, cell) in row.iter().enumerate() {
                 if col < num_cols {
-                    let w: usize = cell
-                        .iter()
-                        .map(|s| unicode_display_width(&s.content))
-                        .sum();
+                    let w: usize = cell.iter().map(|s| unicode_display_width(&s.content)).sum();
                     col_widths[col] = col_widths[col].max(w);
                 }
             }
@@ -521,10 +533,7 @@ impl MarkdownWriter {
         for row in &ts.rows {
             for (col, cell) in row.iter().enumerate() {
                 if col < num_cols {
-                    let w: usize = cell
-                        .iter()
-                        .map(|s| unicode_display_width(&s.content))
-                        .sum();
+                    let w: usize = cell.iter().map(|s| unicode_display_width(&s.content)).sum();
                     col_widths[col] = col_widths[col].max(w);
                 }
             }
@@ -567,7 +576,10 @@ impl MarkdownWriter {
                     .map(|s| unicode_display_width(&s.content))
                     .sum();
                 let pad = width.saturating_sub(cell_width);
-                let alignment = alignments.get(col).copied().unwrap_or(pulldown_cmark::Alignment::None);
+                let alignment = alignments
+                    .get(col)
+                    .copied()
+                    .unwrap_or(pulldown_cmark::Alignment::None);
 
                 let (left_pad, right_pad) = match alignment {
                     pulldown_cmark::Alignment::Center => (pad / 2, pad - pad / 2),
@@ -700,7 +712,10 @@ mod tests {
         // Heading: no # prefix
         let lines = render_markdown("### 🔑 核心设计亮点");
         let text = line_plain_text(&lines[0]);
-        assert!(!text.starts_with("###"), "heading should not have # prefix: {text}");
+        assert!(
+            !text.starts_with("###"),
+            "heading should not have # prefix: {text}"
+        );
         assert!(text.contains("🔑 核心设计亮点"));
 
         // Horizontal rule
@@ -712,7 +727,10 @@ mod tests {
         let lines = render_markdown("**粗体**");
         let text = line_plain_text(&lines[0]);
         assert!(text.contains("粗体"));
-        let has_bold = lines[0].spans.iter().any(|s| s.style.add_modifier.contains(Modifier::BOLD));
+        let has_bold = lines[0]
+            .spans
+            .iter()
+            .any(|s| s.style.add_modifier.contains(Modifier::BOLD));
         assert!(has_bold, "bold text should have BOLD modifier");
 
         // Table with header
@@ -724,10 +742,17 @@ mod tests {
             println!("  line[{i}]: {text:?}");
         }
         // Should have top border, header row, separator, body row, bottom border = 5 lines
-        assert!(lines.len() >= 5, "table should have at least 5 lines, got {}", lines.len());
+        assert!(
+            lines.len() >= 5,
+            "table should have at least 5 lines, got {}",
+            lines.len()
+        );
         // Header row should not be empty
         let header_text: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(header_text.contains("Header1"), "header should contain 'Header1', got: {header_text:?}");
+        assert!(
+            header_text.contains("Header1"),
+            "header should contain 'Header1', got: {header_text:?}"
+        );
     }
 
     #[test]
@@ -756,7 +781,10 @@ mod tests {
         assert!(text.contains("sqrt(4)=2"), "should convert sqrt: {text}");
         assert!(text.contains("2x9=18"), "should convert times: {text}");
         // Math spans should be cyan
-        let has_cyan = lines[0].spans.iter().any(|s| s.style.fg == Some(Color::Cyan));
+        let has_cyan = lines[0]
+            .spans
+            .iter()
+            .any(|s| s.style.fg == Some(Color::Cyan));
         assert!(has_cyan, "math should be cyan colored");
 
         // Table with math cells
@@ -764,6 +792,9 @@ mod tests {
         let lines = render_markdown(table_md);
         let body_line = &lines[3]; // 0: top, 1: header, 2: separator, 3: body, 4: bottom
         let body_text: String = body_line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(body_text.contains("sqrt(4)"), "table should convert sqrt: {body_text}");
+        assert!(
+            body_text.contains("sqrt(4)"),
+            "table should convert sqrt: {body_text}"
+        );
     }
 }

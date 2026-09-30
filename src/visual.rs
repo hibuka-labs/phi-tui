@@ -147,7 +147,13 @@ mod tests {
         let m = map_with_block(5, 1);
         // Head mid-block: lead row + 3 rows into the 5-row block.
         let a = m.anchor_at(4).expect("mid-block head anchors");
-        assert_eq!(a, BlockAnchor { output: 1, intra: 3 });
+        assert_eq!(
+            a,
+            BlockAnchor {
+                output: 1,
+                intra: 3
+            }
+        );
         assert_eq!(m.resolve_anchor(a), Some(4), "unchanged map: strict no-op");
     }
 
@@ -177,7 +183,11 @@ mod tests {
         let mut after = VisualMap::new();
         after.push_mapped(0, "lead".into());
         after.push_mapped(1, "summary".into());
-        assert_eq!(after.resolve_anchor(a), Some(1), "clamps into the 1-row block");
+        assert_eq!(
+            after.resolve_anchor(a),
+            Some(1),
+            "clamps into the 1-row block"
+        );
     }
 
     #[test]
@@ -213,7 +223,13 @@ mod tests {
         m.push_mapped(0, "a".into());
         m.push_mapped(1, "b".into());
         let a = m.anchor_at(1).expect("anchors");
-        assert_eq!(a, BlockAnchor { output: 1, intra: 0 });
+        assert_eq!(
+            a,
+            BlockAnchor {
+                output: 1,
+                intra: 0
+            }
+        );
         assert_eq!(m.resolve_anchor(a), Some(1));
     }
 }

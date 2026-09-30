@@ -23,7 +23,7 @@ use phi_tui::input::Composer;
 use phi_tui::lines::LineKind;
 use phi_tui::markdown::render_markdown;
 use phi_tui::stream::StreamState;
-use phi_tui::transcript::{Transcript, DEFAULT_WRAP_WIDTH};
+use phi_tui::transcript::{DEFAULT_WRAP_WIDTH, Transcript};
 use phi_tui::viewport::Viewport;
 
 type Tui = Terminal<CrosstermBackend<Stdout>>;
@@ -92,10 +92,7 @@ fn run(terminal: &mut Tui) -> io::Result<()> {
 /// Split into `n`-char chunks (fake token deltas).
 fn chunks(s: &str, n: usize) -> Vec<String> {
     let chars: Vec<char> = s.chars().collect();
-    chars
-        .chunks(n)
-        .map(|c| c.iter().collect())
-        .collect()
+    chars.chunks(n).map(|c| c.iter().collect()).collect()
 }
 
 fn ui(
@@ -109,9 +106,20 @@ fn ui(
     let composer_h = (composer.visual_height(area.width.saturating_sub(2)) as u16).min(4) + 2;
     let out_h = area.height.saturating_sub(composer_h + 1) as usize;
 
-    let out = Rect { height: area.height.saturating_sub(composer_h + 1), ..area };
-    let comp = Rect { y: out.y + out.height, height: composer_h, ..area };
-    let status = Rect { y: comp.y + comp.height, height: 1, ..area };
+    let out = Rect {
+        height: area.height.saturating_sub(composer_h + 1),
+        ..area
+    };
+    let comp = Rect {
+        y: out.y + out.height,
+        height: composer_h,
+        ..area
+    };
+    let status = Rect {
+        y: comp.y + comp.height,
+        height: 1,
+        ..area
+    };
 
     // Visible window = committed lines in view + the live streaming tail.
     let window = viewport.window_range(transcript.len(), out_h.max(1));
@@ -132,7 +140,10 @@ fn ui(
     f.render_widget(Paragraph::new(lines).wrap(RWrap { trim: false }), out);
 
     let input = Line::from(format!("❯ {}", composer.text()));
-    f.render_widget(Paragraph::new(input).block(Block::default().borders(Borders::ALL)), comp);
+    f.render_widget(
+        Paragraph::new(input).block(Block::default().borders(Borders::ALL)),
+        comp,
+    );
     f.render_widget(
         Paragraph::new("type · Enter send · PgUp/PgDn scroll · Ctrl+C quit"),
         status,

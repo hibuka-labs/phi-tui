@@ -82,7 +82,8 @@ impl<S> Transcript<S> {
     /// Append a system/banner line (welcome, workspace, log path).
     pub fn push_system(&mut self, text: &str) {
         for (i, line) in wrap(text, self.wrap_width).into_iter().enumerate() {
-            self.output.push(OutputLine { spans: None,
+            self.output.push(OutputLine {
+                spans: None,
                 original: if i == 0 { Some(text.to_string()) } else { None },
                 detail: None,
                 text: line,
@@ -119,7 +120,8 @@ impl<S> Transcript<S> {
             } else {
                 format!("  {line}")
             };
-            self.output.push(OutputLine { spans: None,
+            self.output.push(OutputLine {
+                spans: None,
                 original: if i == 0 { Some(text.to_string()) } else { None },
                 detail: None,
                 text: display,

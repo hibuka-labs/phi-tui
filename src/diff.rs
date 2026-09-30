@@ -71,7 +71,12 @@ pub fn diff_to_hunks(old: &str, new: &str, context: usize) -> Vec<DiffHunk> {
 }
 
 /// Like `diff_to_hunks` but tags each hunk with the originating edit index.
-pub fn diff_to_hunks_indexed(old: &str, new: &str, context: usize, edit_index: usize) -> Vec<DiffHunk> {
+pub fn diff_to_hunks_indexed(
+    old: &str,
+    new: &str,
+    context: usize,
+    edit_index: usize,
+) -> Vec<DiffHunk> {
     let lines = diff_lines(old, new);
     if lines.is_empty() {
         return Vec::new();
@@ -110,24 +115,15 @@ pub fn diff_to_hunks_indexed(old: &str, new: &str, context: usize, edit_index: u
         let hunk_lines: Vec<DiffLine> = lines[start..end].to_vec();
 
         // Derive header line numbers from the first line in the hunk
-        let old_line = hunk_lines
-            .iter()
-            .find_map(|l| l.old_line)
-            .unwrap_or(1);
-        let new_line = hunk_lines
-            .iter()
-            .find_map(|l| l.new_line)
-            .unwrap_or(1);
-        let old_count = hunk_lines
-            .iter()
-            .filter(|l| l.old_line.is_some())
-            .count();
-        let new_count = hunk_lines
-            .iter()
-            .filter(|l| l.new_line.is_some())
-            .count();
+        let old_line = hunk_lines.iter().find_map(|l| l.old_line).unwrap_or(1);
+        let new_line = hunk_lines.iter().find_map(|l| l.new_line).unwrap_or(1);
+        let old_count = hunk_lines.iter().filter(|l| l.old_line.is_some()).count();
+        let new_count = hunk_lines.iter().filter(|l| l.new_line.is_some()).count();
 
-        let header = format!("@@ -{},{} +{},{} @@", old_line, old_count, new_line, new_count);
+        let header = format!(
+            "@@ -{},{} +{},{} @@",
+            old_line, old_count, new_line, new_count
+        );
         hunks.push(DiffHunk {
             header,
             lines: hunk_lines,

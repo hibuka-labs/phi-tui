@@ -145,7 +145,8 @@ mod tests {
     /// `tempfile` dev-dependency). Tagged per-test and wiped on entry so a
     /// previous interrupted run can't leak stale state.
     fn scratch(tag: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("phimint-mention-{tag}-{}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("phimint-mention-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         path
@@ -268,7 +269,10 @@ mod tests {
 
         let outside = scratch("relabs-outside");
         let out = touch(&outside, "demo/codex/main.rs");
-        assert_eq!(rel_or_abs(&root, &out), out.canonicalize().unwrap().to_string_lossy());
+        assert_eq!(
+            rel_or_abs(&root, &out),
+            out.canonicalize().unwrap().to_string_lossy()
+        );
     }
 
     #[test]
@@ -282,6 +286,9 @@ mod tests {
         let root = scratch("nonexistent");
         // Non-existent paths can't canonicalize; they stay joined and, when
         // under the root, render as a relative path.
-        assert_eq!(rel_or_abs(&root, &root.join("new/file.txt")), "new/file.txt");
+        assert_eq!(
+            rel_or_abs(&root, &root.join("new/file.txt")),
+            "new/file.txt"
+        );
     }
 }

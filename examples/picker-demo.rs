@@ -59,7 +59,10 @@ fn render(picker: &Picker<String>) {
         let marker = if i == picker.selected { ">" } else { " " };
         out.push_str(&format!("{marker} {entry}\n"));
     }
-    out.push_str(&format!("prefix: {:?} — Enter on your choice\n", picker.prefix));
+    out.push_str(&format!(
+        "prefix: {:?} — Enter on your choice\n",
+        picker.prefix
+    ));
     print!("\x1B[2J\x1B[H{out}");
     let _ = io::stdout().flush();
 }

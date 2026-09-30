@@ -173,12 +173,20 @@ impl Composer {
 
 /// Byte offset of the char boundary immediately before `col`.
 fn prev_boundary(line: &str, col: usize) -> usize {
-    line[..col].char_indices().next_back().map(|(i, _)| i).unwrap_or(0)
+    line[..col]
+        .char_indices()
+        .next_back()
+        .map(|(i, _)| i)
+        .unwrap_or(0)
 }
 
 /// Byte offset of the char boundary immediately after `col`.
 fn next_boundary(line: &str, col: usize) -> usize {
-    line[col..].chars().next().map(|c| col + c.len_utf8()).unwrap_or(col)
+    line[col..]
+        .chars()
+        .next()
+        .map(|c| col + c.len_utf8())
+        .unwrap_or(col)
 }
 
 /// Clamp `col` down to the nearest char boundary ≤ `col` (also clamps to `len`).

@@ -312,14 +312,20 @@ mod tests {
         assert_eq!(flushed.len(), 1, "long thought folds to ONE line");
         let l = &flushed[0];
         assert_eq!(l.kind, LineKind::Thought);
-        assert_eq!(l.original, None,
+        assert_eq!(
+            l.original, None,
             "folded line must NOT carry original: rewrap_output would \
-             unfold it on resize and drop detail; detail.raw is the source");
+             unfold it on resize and drop detail; detail.raw is the source"
+        );
         // text = style-blind first-line preview (no agent prefix here).
         let expected_first = crate::wrap::wrap(&body, 20)[0].clone();
         assert_eq!(l.text, expected_first);
         match &l.detail {
-            Some(LineDetail::Thought { raw, line_count, char_count }) => {
+            Some(LineDetail::Thought {
+                raw,
+                line_count,
+                char_count,
+            }) => {
                 assert_eq!(raw, &body);
                 assert_eq!(*char_count, body.chars().count());
                 assert_eq!(*line_count, crate::wrap::wrap(&body, 20).len());
@@ -361,7 +367,10 @@ mod tests {
         st.push_thought(&"abcdef ".repeat(20), None);
         let flushed = st.push_text("answer", None); // implicit thought flush
         assert_eq!(flushed.len(), 1);
-        assert!(matches!(flushed[0].detail, Some(LineDetail::Thought { .. })));
+        assert!(matches!(
+            flushed[0].detail,
+            Some(LineDetail::Thought { .. })
+        ));
         let flushed = st.flush(); // the prose segment
         assert_eq!(flushed.len(), 1);
         assert_eq!(flushed[0].kind, LineKind::Normal);
@@ -384,6 +393,9 @@ mod tests {
         st.push_thought(&"x".repeat(41), None); // wraps to exactly 3 lines
         let flushed = st.flush();
         assert_eq!(flushed.len(), 1, "boundary: 3 lines = folded");
-        assert!(matches!(flushed[0].detail, Some(LineDetail::Thought { .. })));
+        assert!(matches!(
+            flushed[0].detail,
+            Some(LineDetail::Thought { .. })
+        ));
     }
 }

@@ -20,7 +20,10 @@ fn transcript_wrap_viewport_chain() {
     t.set_wrap_width(10);
     let lines: Vec<String> = t.output.iter().map(|l| l.text.clone()).collect();
     assert!(t.len() > before, "narrow wrap splits into more lines");
-    assert!(lines.iter().all(|l| l.chars().count() <= 12), "prefix adds ≤2 cols: {lines:?}");
+    assert!(
+        lines.iter().all(|l| l.chars().count() <= 12),
+        "prefix adds ≤2 cols: {lines:?}"
+    );
 
     // The viewport shows the bottom `height` lines of exactly this transcript.
     let mut vp = Viewport::new();
@@ -51,7 +54,11 @@ fn markdown_visual_text_matches_selection_copy() {
     let visual: Vec<String> = rendered.iter().map(line_plain_text).collect();
     // Markdown markers are gone from the display text.
     assert_eq!(visual[0], "Title", "heading renders without the # marker");
-    assert!(visual.iter().all(|l| !l.contains('#') || l.starts_with("Title")));
+    assert!(
+        visual
+            .iter()
+            .all(|l| !l.contains('#') || l.starts_with("Title"))
+    );
 
     // A selection spanning every visual line copies exactly the displayed text.
     let mut sel = SelectionState::new();
@@ -84,7 +91,10 @@ fn stream_flush_commits_into_transcript() {
     t.extend(flushed);
     assert_eq!(t.output[0].original.as_deref(), Some("hello **world**"));
     assert_eq!(t.output[0].text, "hello **world**");
-    assert!(t.output[0].spans.is_none(), "streamed prose carries no styled spans");
+    assert!(
+        t.output[0].spans.is_none(),
+        "streamed prose carries no styled spans"
+    );
 }
 
 /// The anchored replaceable block: a second full-plan push splices the first
@@ -101,15 +111,29 @@ fn anchored_block_replaces_in_place_then_appends() {
         }
     }
     let mut t: Transcript = Transcript::new();
-    t.push(OutputLine { text: "before".into(), kind: LineKind::Normal, spans: None, original: None, detail: None });
+    t.push(OutputLine {
+        text: "before".into(),
+        kind: LineKind::Normal,
+        spans: None,
+        original: None,
+        detail: None,
+    });
     t.replace_plan(vec![plan("plan v1")]);
     t.replace_plan(vec![plan("plan v2a"), plan("plan v2b")]);
     let texts: Vec<&str> = t.output.iter().map(|l| l.text.as_str()).collect();
-    assert_eq!(texts, vec!["before", "plan v2a", "plan v2b"], "replaced in place");
+    assert_eq!(
+        texts,
+        vec!["before", "plan v2a", "plan v2b"],
+        "replaced in place"
+    );
     t.clear_plan();
     t.replace_plan(vec![plan("plan v3")]);
     let texts: Vec<&str> = t.output.iter().map(|l| l.text.as_str()).collect();
-    assert_eq!(texts, vec!["before", "plan v2a", "plan v2b", "plan v3"], "appends after clear");
+    assert_eq!(
+        texts,
+        vec!["before", "plan v2a", "plan v2b", "plan v3"],
+        "appends after clear"
+    );
 }
 
 /// wrap is CJK-aware; one_line truncates by char count with an ellipsis.

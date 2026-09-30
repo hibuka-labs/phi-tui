@@ -16,11 +16,11 @@
 //! 4. **Extract on second use**: shared mechanics (band maths, `Clear`, scroll
 //!    windows) stay inside the widget until a second widget family needs them.
 
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
-use ratatui::Frame;
 
 /// Columns the selection gutter occupies (`▸ ` or `  `).
 pub const GUTTER_W: usize = 2;
@@ -169,13 +169,21 @@ impl PopupList<'_> {
         // `popup_rect` clamps the band to `term.height - 2`, so a window sized
         // from `style.height` alone would have its tail clipped by `Paragraph`
         // on a short terminal — hiding the selected row and the separator.
-        let capacity = term.height.saturating_sub(2).saturating_sub(self.style.chrome());
+        let capacity = term
+            .height
+            .saturating_sub(2)
+            .saturating_sub(self.style.chrome());
         let window = visible_window(
             self.rows.len(),
             (self.style.height.min(capacity)).max(1) as usize,
             self.selected,
         );
-        let rect = popup_rect(anchor, term, width, self.style.band_height(window.len() as u16));
+        let rect = popup_rect(
+            anchor,
+            term,
+            width,
+            self.style.band_height(window.len() as u16),
+        );
         f.render_widget(Clear, rect);
 
         let block = if self.style.frame {
@@ -217,9 +225,9 @@ impl PopupList<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::text::Line;
-    use ratatui::Terminal;
     // `Color`, `Modifier`, `Style`, `Rect` come in through `use super::*`.
 
     fn term() -> Rect {
@@ -318,7 +326,8 @@ mod tests {
             title: None,
         };
         let mut term = Terminal::new(TestBackend::new(40, 12)).unwrap();
-        term.draw(|f| list.render_at(f, Rect::new(0, 9, 40, 3))).unwrap();
+        term.draw(|f| list.render_at(f, Rect::new(0, 9, 40, 3)))
+            .unwrap();
         let buf = term.backend().buffer();
         let area = buf.area();
         let find = |sym: &str| {
@@ -372,10 +381,16 @@ mod tests {
         };
         // Composer band sits at y = 9..12; the popup grows upward from y = 9.
         let text = draw_list(&list, Rect::new(0, 9, 40, 3));
-        assert!(text.contains("  alpha"), "unselected gutter missing:\n{text}");
+        assert!(
+            text.contains("  alpha"),
+            "unselected gutter missing:\n{text}"
+        );
         assert!(text.contains("▸ beta"), "selected gutter missing:\n{text}");
         assert!(text.contains('─'), "separator missing:\n{text}");
-        assert!(!text.contains('╭'), "frameless style drew a border:\n{text}");
+        assert!(
+            !text.contains('╭'),
+            "frameless style drew a border:\n{text}"
+        );
     }
 
     #[test]
@@ -403,7 +418,10 @@ mod tests {
             title: Some("skills".into()),
         };
         let text = draw_list(&list, Rect::new(0, 9, 40, 3));
-        assert!(text.contains('╭') && text.contains('╰'), "border missing:\n{text}");
+        assert!(
+            text.contains('╭') && text.contains('╰'),
+            "border missing:\n{text}"
+        );
         assert!(text.contains("skills"), "title missing:\n{text}");
     }
 
@@ -462,7 +480,8 @@ mod tests {
             title: None,
         };
         let mut term = Terminal::new(TestBackend::new(40, 10)).unwrap();
-        term.draw(|f| list.render_at(f, Rect::new(0, 7, 40, 3))).unwrap();
+        term.draw(|f| list.render_at(f, Rect::new(0, 7, 40, 3)))
+            .unwrap();
         let text = buffer_text(term.backend().buffer());
         assert!(text.contains("▸ row19"), "selected row clipped:\n{text}");
         assert!(text.contains('─'), "separator clipped:\n{text}");

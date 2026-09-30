@@ -73,7 +73,10 @@ mod tests {
     #[test]
     fn tail_window_returns_last_n() {
         let lines: Vec<String> = (0..10).map(|i| format!("l{i}")).collect();
-        assert_eq!(tail_window(&lines, 3), ["l7".to_string(), "l8".to_string(), "l9".to_string()]);
+        assert_eq!(
+            tail_window(&lines, 3),
+            ["l7".to_string(), "l8".to_string(), "l9".to_string()]
+        );
         assert_eq!(tail_window(&lines, 20).len(), 10);
         assert!(tail_window(&lines, 0).is_empty());
         assert!(tail_window(&[], 4).is_empty());
@@ -99,7 +102,10 @@ mod tests {
             .unwrap();
         let text = buffer_text(&terminal);
         assert!(text.contains("thinking · 3s"), "title missing:\n{text}");
-        assert!(text.contains("╭"), "top border missing (ratatui 0.30 Rounded renders ╭ corner, not ┌):\n{text}");
+        assert!(
+            text.contains("╭"),
+            "top border missing (ratatui 0.30 Rounded renders ╭ corner, not ┌):\n{text}"
+        );
         assert!(text.contains("l9"), "last line visible:\n{text}");
         assert!(!text.contains("l0"), "early lines hidden:\n{text}");
         assert!(!text.contains("l5"), "beyond-window lines hidden:\n{text}");
@@ -125,7 +131,10 @@ mod tests {
             .unwrap();
         // Must not panic; border present.
         let text = buffer_text(&terminal);
-        assert!(text.contains("╰"), "bottom border missing (ratatui 0.30 Rounded renders ╰ corner, not └):\n{text}");
+        assert!(
+            text.contains("╰"),
+            "bottom border missing (ratatui 0.30 Rounded renders ╰ corner, not └):\n{text}"
+        );
     }
 
     #[test]
@@ -147,7 +156,13 @@ mod tests {
             })
             .unwrap();
         let text = buffer_text(&terminal);
-        assert!(text.contains("short"), "later line visible after clip:\n{text}");
-        assert!(text.contains('╭') && text.contains('╰'), "borders intact:\n{text}");
+        assert!(
+            text.contains("short"),
+            "later line visible after clip:\n{text}"
+        );
+        assert!(
+            text.contains('╭') && text.contains('╰'),
+            "borders intact:\n{text}"
+        );
     }
 }
