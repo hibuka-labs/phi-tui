@@ -1,10 +1,10 @@
-//! 转录本鼠标选择 + 右键复制菜单状态。
+//! Transcript mouse selection and the right-click copy menu.
 //!
-//! 从 `App` god-object 抽出（此前是 `selection`/`context_menu` 字段 +
-//! `handle_mouse` 里的选择分支、`selection_range`/`is_selected`/
-//! `selection_text`/`clear_selection`）。屏幕坐标 → 行号的命中测试依赖渲染
-//! 产物（[`crate::visual::VisualMap`），留在 App；这里只管理「选了什么 / 菜单开没
-//! 开 / 范围与文本」。
+//! Extracted out of the `App` god-object (previously the `selection`/`context_menu`
+//! fields, the selection branch of `handle_mouse`, and
+//! `selection_text`/`clear_selection`). Hit-testing screen coordinates to line
+//! numbers depends on the render output ([`crate::visual::VisualMap`]), so that
+//! stays in App; this module only tracks what is selected and what the menu shows.
 
 use crossterm::event::{MouseButton, MouseEventKind};
 
@@ -46,12 +46,12 @@ pub fn context_menu_pos(x: u16, y: u16, area_w: u16, area_h: u16) -> (u16, u16) 
     )
 }
 
-/// 右键菜单开着时的一次点击结果。
+/// What a click means while the right-click menu is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuClick {
-    /// 点了「拷贝」。
+    /// The copy row was clicked.
     Copy,
-    /// 点了「取消」（或菜单外区域，交给普通选择逻辑）。
+    /// The dismiss row (or anywhere outside) was clicked; hand back to normal selection.
     Dismiss,
 }
 
@@ -99,7 +99,10 @@ impl SelectionState {
     /// (`None` = the press missed the transcript — clears the selection).
     pub fn anchor(&mut self, idx: Option<usize>) {
         self.context_menu = None;
-        self.selection = idx.map(|idx| Selection { anchor: idx, head: idx });
+        self.selection = idx.map(|idx| Selection {
+            anchor: idx,
+            head: idx,
+        });
     }
 
     /// Left-drag: move the selection head to `idx` (no-op when no selection).
@@ -174,7 +177,11 @@ impl SelectionState {
     /// line model. `visual_lines_text` is what the renderer displayed per
     /// visual line (post-markdown-expansion); when empty (tests, before the
     /// first render) `fallback` is used instead (one entry per raw line).
-    pub fn text(&self, fallback: &[impl AsRef<str>], visual_lines_text: &[impl AsRef<str>]) -> String {
+    pub fn text(
+        &self,
+        fallback: &[impl AsRef<str>],
+        visual_lines_text: &[impl AsRef<str>],
+    ) -> String {
         let total = if visual_lines_text.is_empty() {
             fallback.len()
         } else {
@@ -217,7 +224,10 @@ mod tests {
         s.anchor(Some(2));
         s.extend(Some(5));
         assert_eq!(s.selection, Some(Selection { anchor: 2, head: 5 }));
-        assert_eq!(s.text(&lines(10), &empty_visual()), "line 2\nline 3\nline 4\nline 5");
+        assert_eq!(
+            s.text(&lines(10), &empty_visual()),
+            "line 2\nline 3\nline 4\nline 5"
+        );
     }
 
     #[test]
@@ -226,7 +236,10 @@ mod tests {
         s.anchor(Some(5));
         s.extend(Some(2));
         assert!(s.is_selected(3, 10));
-        assert_eq!(s.text(&lines(10), &empty_visual()), "line 2\nline 3\nline 4\nline 5");
+        assert_eq!(
+            s.text(&lines(10), &empty_visual()),
+            "line 2\nline 3\nline 4\nline 5"
+        );
     }
 
     #[test]
@@ -253,7 +266,14 @@ mod tests {
         assert!(!s.menu_is_open());
         s.anchor(Some(0));
         s.open_menu(3, 4);
-        assert_eq!(s.context_menu(), Some(&ContextMenu { x: 3, y: 4, selected: 0 }));
+        assert_eq!(
+            s.context_menu(),
+            Some(&ContextMenu {
+                x: 3,
+                y: 4,
+                selected: 0
+            })
+        );
     }
 
     #[test]
@@ -277,13 +297,13 @@ mod tests {
         let mut s = SelectionState::new();
         s.anchor(Some(0));
         s.open_menu(0, 0);
-        // Click the "拷贝" row (row y+1) → Copy.
+        // Click the copy row (row y+1) -> Copy.
         assert_eq!(
             s.menu_click(MouseEventKind::Down(MouseButton::Left), 1, 1, 20, 20),
             Some(MenuClick::Copy)
         );
         assert!(!s.menu_is_open());
-        // Re-open; click the "取消" row (y+2) → Dismiss.
+        // Re-open; click the dismiss row (y+2) -> Dismiss.
         s.open_menu(0, 0);
         assert_eq!(
             s.menu_click(MouseEventKind::Down(MouseButton::Left), 1, 2, 20, 20),

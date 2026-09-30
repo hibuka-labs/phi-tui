@@ -51,7 +51,7 @@ pub fn one_line(s: &str, max: usize) -> String {
 /// Which end of a string an elision keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Elide {
-    /// Keep the front: `描述前缀...`.
+    /// Keep the front: `description prefix...`.
     Head,
     /// Keep the back: `.../bg_wake_tests.rs`. With `sep`, whole `sep`-separated
     /// components are kept (right to left) so the tail stops on a boundary.
@@ -134,7 +134,12 @@ fn take_tail(s: &str, budget: usize, sep: Option<char>) -> String {
         let mut parts: Vec<&str> = Vec::new();
         let mut used = 0usize;
         for comp in s.split(sep).rev() {
-            let extra = display_width(comp) + if parts.is_empty() { 0 } else { sep.width().unwrap_or(0) };
+            let extra = display_width(comp)
+                + if parts.is_empty() {
+                    0
+                } else {
+                    sep.width().unwrap_or(0)
+                };
             if used + extra > comp_budget {
                 break;
             }
@@ -240,7 +245,7 @@ mod tests {
 
     #[test]
     fn wrap_counts_wide_cjk_as_two_columns() {
-        // "你好世界" is 4 wide glyphs = 8 columns; at width 4 it splits in half.
+        // Four wide glyphs are 8 columns; at width 4 they split in half.
         assert_eq!(wrap("你好世界", 4), vec!["你好", "世界"]);
         // A wide glyph straddling the boundary is pushed to the next line.
         assert_eq!(wrap("a你b", 3), vec!["a你", "b"]);
@@ -267,14 +272,22 @@ mod tests {
                 // Whole-string extend.
                 let mut whole = WrapCache::new(width);
                 whole.extend(s);
-                assert_eq!(whole.lines(), expected.as_slice(), "whole-extend {s:?} @{width}");
+                assert_eq!(
+                    whole.lines(),
+                    expected.as_slice(),
+                    "whole-extend {s:?} @{width}"
+                );
                 // Char-by-char extend (true incrementality).
                 let mut incr = WrapCache::new(width);
                 for c in s.chars() {
                     let mut buf = [0u8; 4];
                     incr.extend(c.encode_utf8(&mut buf));
                 }
-                assert_eq!(incr.lines(), expected.as_slice(), "char-extend {s:?} @{width}");
+                assert_eq!(
+                    incr.lines(),
+                    expected.as_slice(),
+                    "char-extend {s:?} @{width}"
+                );
             }
         }
     }
@@ -282,7 +295,10 @@ mod tests {
     #[test]
     fn elide_keeps_short_strings_intact() {
         assert_eq!(elide("src/main.rs", 20, Elide::Head), "src/main.rs");
-        assert_eq!(elide("src/main.rs", 20, Elide::Tail { sep: Some('/') }), "src/main.rs");
+        assert_eq!(
+            elide("src/main.rs", 20, Elide::Tail { sep: Some('/') }),
+            "src/main.rs"
+        );
         // Exactly at budget: untouched.
         assert_eq!(elide("abcde", 5, Elide::Head), "abcde");
     }
@@ -294,9 +310,9 @@ mod tests {
 
     #[test]
     fn elide_counts_wide_cjk_as_two_columns() {
-        // "你好世界" = 8 columns; budget 7 = "..." (3) + 2 glyphs (4).
+        // Four wide glyphs = 8 columns; budget 7 = "..." (3) + 2 glyphs (4).
         assert_eq!(elide("你好世界", 7, Elide::Head), "你好...");
-        // Interior budget is 2: "ab" fills it exactly, so 你 (2 wide) is dropped
+        // Interior budget is 2: "ab" fills it exactly, so one 2-wide glyph is dropped
         // whole rather than squeezed into one column.
         assert_eq!(elide("ab你好", 5, Elide::Head), "ab...");
     }
@@ -305,9 +321,15 @@ mod tests {
     fn elide_tail_prefers_whole_path_components() {
         let p = "src/ui/handlers/runtime/bg_wake_tests.rs"; // 40 columns
         // 28 = "..." (3) + "/runtime/bg_wake_tests.rs" (25).
-        assert_eq!(elide(p, 28, Elide::Tail { sep: Some('/') }), ".../runtime/bg_wake_tests.rs");
+        assert_eq!(
+            elide(p, 28, Elide::Tail { sep: Some('/') }),
+            ".../runtime/bg_wake_tests.rs"
+        );
         // 20 = "..." (3) + "/bg_wake_tests.rs" (17).
-        assert_eq!(elide(p, 20, Elide::Tail { sep: Some('/') }), ".../bg_wake_tests.rs");
+        assert_eq!(
+            elide(p, 20, Elide::Tail { sep: Some('/') }),
+            ".../bg_wake_tests.rs"
+        );
     }
 
     #[test]

@@ -1,28 +1,28 @@
-//! 通用 picker 状态机：`@` mention 和 `/` skill 两个 picker 共享的机械部分。
+//! Generic picker state machine: the mechanics shared by the `@` mention and `/` skill pickers.
 //!
-//! 每个 picker 都是「typed prefix + 过滤后的 entries + 高亮 selected」三元组，
-//! 键盘交互完全一致（Esc 取消 / Up·Down 移动 / Backspace 删前缀 / Enter 确认 /
-//! 普通字符追加）。这里抽的是纯状态操作；App 层负责两个差异点：如何从 prefix
-//! 生成 entries（文件列表 vs skill 过滤）、确认时往 composer 插入什么。
+//! Every picker is the same triple: typed prefix, filtered entries, a highlighted
+//! selected row, with identical keys (Esc cancels, Up/Down move, Backspace trims the
+//! prefix, Enter confirms, printable chars append). Only state operations live
+//! here; the App owns the two varying parts (prefix -> entries, and what Enter inserts).
 
 use crossterm::event::KeyCode;
 
-/// 一次 picker 键盘输入对应的机械动作，由 App 层解释执行。
+/// The mechanical result of one key press, interpreted by the App layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerKey {
-    /// 普通字符：追加到 prefix。
+    /// A printable char: append it to the prefix.
     Char(char),
-    /// 退格：删除最后一个前缀字符（空前缀时由 App 决定是否关闭 picker）。
+    /// Backspace: drop the last prefix char (an empty prefix lets the App close the picker).
     Backspace,
-    /// 移动高亮（±1）。
+    /// Move the highlight by +1 or -1.
     Move(i32),
-    /// 确认当前选中。
+    /// Confirm the current selection.
     Confirm,
-    /// 取消整个 picker。
+    /// Cancel the whole picker.
     Cancel,
 }
 
-/// 把一次按键翻译成 [`PickerKey`]；无关按键返回 `None`（调用方吞掉）。
+/// Translate a key press into a [`PickerKey`]; unrelated keys give `None` (the caller swallows them).
 pub fn picker_key(code: KeyCode) -> Option<PickerKey> {
     use KeyCode::*;
     match code {
@@ -36,7 +36,7 @@ pub fn picker_key(code: KeyCode) -> Option<PickerKey> {
     }
 }
 
-/// 通用 picker 状态：typed prefix、过滤后的 entries、高亮索引。
+/// Generic picker state: typed prefix, filtered entries, highlight index.
 #[derive(Debug, Clone, Default)]
 pub struct Picker<T> {
     pub prefix: String,

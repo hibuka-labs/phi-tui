@@ -1,8 +1,8 @@
-//! 滚动视图状态：`scroll_offset` / `follow_bottom` 和可见窗口计算。
+//! Scroll viewport state: `scroll_offset` / `follow_bottom` and the visible-window maths.
 //!
-//! 从 `App` god-object 抽出（此前是 App 上的两个字段 + `scroll_up` /
-//! `scroll_down` / `window_range`）。App 持有一个实例：渲染层每帧用它算可见
-//! 窗口，鼠标滚轮通过 `scroll_up`/`scroll_down` 移动视口。
+//! Extracted out of the `App` god-object (previously two fields on App plus
+//! `scroll_up` / `scroll_down` / `window_range`). App holds one instance: the
+//! render layer asks for the visible window each frame and the wheel drives it.
 
 use std::ops::Range;
 
