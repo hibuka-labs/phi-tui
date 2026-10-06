@@ -19,8 +19,9 @@ pub struct SpanSpec<S> {
 }
 
 /// Visual kind of an output line (mapped to a ratatui style in render.rs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LineKind {
+    #[default]
     Normal,
     Thought,
     Plan,
@@ -35,24 +36,79 @@ pub enum LineKind {
 }
 
 /// Structured detail rendered as a multi-line visual block (inline diff,
-/// folded thought segment). Attached to `OutputLine.detail`; `None` renders
+/// folded text block). Attached to `OutputLine.detail`; `None` renders
 /// `text` alone.
 #[derive(Debug, Clone)]
 pub enum LineDetail {
     /// Inline diff for `edit_file` / `write_file`.
     Diff { path: String, hunks: Vec<DiffHunk> },
-    /// A folded thinking segment: full raw text plus counts precomputed at
-    /// flush time. The renderer shows a one-line summary by default; the
-    /// product's expand toggle re-wraps `raw` at the current width.
-    Thought {
+    /// A folded text block: full raw text plus counts precomputed at commit
+    /// time. The renderer shows a summary line by default; the product's
+    /// expand toggle re-wraps `raw` at the current width.
+    ///
+    /// Carries a whole thinking segment or a whole tool result — the two are
+    /// the same mechanism (a dense block that is summarized by default and
+    /// expanded on demand). Which summary line to draw, and how many preview
+    /// rows to show, is the product's call; the block model only keeps the
+    /// text, the counts, and where the meta row stands relative to the head.
+    Folded {
         raw: String,
-        /// Wrapped line count at flush-time width (cosmetic, shown in the
-        /// summary; may drift after resize — expanded rendering re-wraps).
+        /// Line count at commit-time width (cosmetic, shown in the summary;
+        /// may drift after resize — expanded rendering re-wraps).
         line_count: usize,
         /// Total characters in `raw` (precomputed for the token estimate in
-        /// titles/summaries; never re-derived at render time).
+        /// thinking summaries; never re-derived at render time).
         char_count: usize,
+        /// Whether the meta row already displays `raw`'s first line — see
+        /// [`MetaHead`]. Recorded at commit time because the product is the
+        /// only layer that knows what it wrote on the meta row.
+        meta_head: MetaHead,
     },
+}
+
+/// How a [`LineDetail::Folded`] block's meta row relates to `raw`'s first
+/// line, recorded at commit time by the product.
+///
+/// Two mechanical questions hang on this and nothing else: which rows of
+/// `raw` the payload body still owes the reader (a first line the meta
+/// already displays is not drawn twice), and whether full expansion must
+/// restore a truncated first line before the body. The renderer derives
+/// nothing from line kinds — a meta row is whatever the product built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MetaHead {
+    /// The meta row is a label only (a tool invocation, a count summary); the
+    /// body owns the whole payload, first row included.
+    #[default]
+    None,
+    /// The meta row displays `raw`'s first line whole; the body starts at the
+    /// second row.
+    Whole,
+    /// The meta row displays `raw`'s first line truncated; the body starts at
+    /// the second row, and full expansion restores the first row — in the
+    /// payload's own order, before the body.
+    Abbreviated,
+}
+
+/// Live state of a tool invocation line.
+///
+/// Mechanism only: the line model records where a call is in its lifecycle so
+/// the renderer can update the row in place (`ToolCallStarted` → `Running`,
+/// `ToolCallFinished` → `Done`/`Failed`/`Denied`). Mapping a state to a glyph
+/// and a colour is the product's job — the line model never names a symbol,
+/// so the CJK width-safety rules stay a product-layer concern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToolState {
+    /// Accepted but not started (e.g. queued behind a batch).
+    Queued,
+    /// In flight. The product may animate this state's glyph.
+    #[default]
+    Running,
+    /// Finished successfully.
+    Done,
+    /// Finished with an error.
+    Failed,
+    /// Refused by approval — never ran.
+    Denied,
 }
 
 /// A diff hunk: a group of related changes with a unified-diff header.
@@ -102,8 +158,39 @@ pub struct OutputLine<S = ()> {
     /// only on the *first* output line of the block; subsequent lines have
     /// `original = None` and are replaced during re-wrap.
     pub original: Option<String>,
-    /// Structured detail for multi-line blocks (inline diff, folded thought).
+    /// Structured detail for multi-line blocks (inline diff, folded text).
     /// When `Some`, the renderer expands this into a visual block instead of
     /// rendering `text` alone.
     pub detail: Option<LineDetail>,
+    /// Lifecycle state of a tool invocation line (`None` for everything else).
+    ///
+    /// Accounting only — it lets the renderer redraw this row's leading glyph
+    /// as the call moves through its lifecycle, and lets `ToolCallFinished`
+    /// find the row to update in place. Glyphs and colours are the product's.
+    pub tool_state: Option<ToolState>,
+}
+
+impl<S> Default for OutputLine<S> {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            kind: LineKind::Normal,
+            spans: None,
+            original: None,
+            detail: None,
+            tool_state: None,
+        }
+    }
+}
+
+impl<S> OutputLine<S> {
+    /// A plain text line of the given kind: no spans, no rewrap original, no
+    /// structured detail, no tool state.
+    pub fn new(text: impl Into<String>, kind: LineKind) -> Self {
+        Self {
+            text: text.into(),
+            kind,
+            ..Default::default()
+        }
+    }
 }

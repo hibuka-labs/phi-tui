@@ -108,6 +108,7 @@ fn anchored_block_replaces_in_place_then_appends() {
             spans: None,
             original: None,
             detail: None,
+            tool_state: None,
         }
     }
     let mut t: Transcript = Transcript::new();
@@ -117,6 +118,7 @@ fn anchored_block_replaces_in_place_then_appends() {
         spans: None,
         original: None,
         detail: None,
+        tool_state: None,
     });
     t.replace_plan(vec![plan("plan v1")]);
     t.replace_plan(vec![plan("plan v2a"), plan("plan v2b")]);

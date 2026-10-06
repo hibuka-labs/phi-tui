@@ -4,6 +4,7 @@
 //! Extracted from `app.rs` so the streaming state machine and the renderer can
 //! both use them without reaching into the `App` god-object.
 
+use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthChar;
 
 /// Hard-wrap text to `width` display columns: split on existing newlines, then
@@ -167,6 +168,211 @@ fn take_tail(s: &str, budget: usize, sep: Option<char>) -> String {
     s[start..].to_string()
 }
 
+/// Wrap one styled line to `width` display columns, keeping every span's
+/// style and breaking at whitespace where there is any.
+///
+/// Markdown output is one `Line` per paragraph, made of several styled spans
+/// (bold runs, code spans, links). The transcript's `Paragraph` widget does
+/// not soft-wrap — a single over-wide line is clipped at the terminal edge,
+/// so the tail of a long answer silently disappears from the screen while
+/// still sitting in the transcript. Wrapping at the span level is the only
+/// way to fix that without flattening the styling back to plain text.
+///
+/// Whitespace is the preferred break point (prose reads correctly); a run
+/// with no whitespace in `width` columns (a long path, a URL) is broken at a
+/// char boundary so it can never overflow. Widths are terminal columns, so a
+/// Chinese paragraph wraps at the same visual width as an English one.
+///
+/// The line's own `style` and `alignment` are carried onto every row.
+pub fn wrap_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
+    let width = width.max(1);
+    if display_width_line(&line) <= width {
+        return vec![line];
+    }
+    let Line {
+        style,
+        alignment,
+        spans,
+    } = line;
+
+    let mut out: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut row: Vec<Span<'static>> = Vec::new();
+    let mut col = 0usize;
+
+    // Flatten to alternating whitespace / non-whitespace runs, each keeping
+    // the spans it was cut out of. Doing this up front keeps the fill loop
+    // simple: it never has to think about span boundaries.
+    for run in split_runs(spans) {
+        let is_space = run_is_space(&run);
+        let w = display_width_spans(&run);
+        if is_space {
+            if row.is_empty() {
+                // At the line head the spaces are indentation (markdown list
+                // nesting) and must survive; at any later empty row they are
+                // the space that caused the break and must not lead the row.
+                if !out.is_empty() {
+                    continue;
+                }
+                if w > width {
+                    continue; // deeper than a whole row can show
+                }
+                col += w;
+                row.extend(run);
+                continue;
+            }
+            if col + w > width {
+                out.push(std::mem::take(&mut row));
+                col = 0;
+                continue;
+            }
+            col += w;
+            row.extend(run);
+            continue;
+        }
+        if col + w <= width {
+            col += w;
+            row.extend(run);
+            continue;
+        }
+        // Doesn't fit on this row. Put it on a fresh one — and if it is still
+        // too wide for a whole row, hard-break it at char boundaries.
+        if !row.is_empty() {
+            out.push(std::mem::take(&mut row));
+            col = 0;
+        }
+        for piece in hard_break_spans(run, width) {
+            let pw = display_width_spans(&piece);
+            if col + pw > width && !row.is_empty() {
+                out.push(std::mem::take(&mut row));
+                col = 0;
+            }
+            col += pw;
+            row.extend(piece);
+        }
+    }
+    out.push(row);
+
+    out.into_iter()
+        .map(|mut row| {
+            // A space that fit at the row end stays in `row` even though the
+            // next run broke to a new row; drop it so every row's plain text
+            // (selection/copy) has no phantom trailing gap.
+            trim_trailing_space(&mut row);
+            Line {
+                style,
+                alignment,
+                spans: row,
+            }
+        })
+        .collect()
+}
+
+/// Drop trailing whitespace-only spans, unless the row is nothing but spaces
+/// (an indentation-only row — emptying it would lose a visual line).
+fn trim_trailing_space(spans: &mut Vec<Span<'static>>) {
+    let has_content = spans
+        .iter()
+        .any(|s| !s.content.chars().all(char::is_whitespace));
+    if !has_content {
+        return;
+    }
+    while spans
+        .last()
+        .is_some_and(|s| s.content.chars().all(char::is_whitespace))
+    {
+        spans.pop();
+    }
+}
+
+/// Display columns used by a styled line (sum over its spans).
+fn display_width_line(line: &Line<'_>) -> usize {
+    display_width_spans(&line.spans)
+}
+
+/// Display columns used by a run of spans.
+fn display_width_spans(spans: &[Span<'_>]) -> usize {
+    spans
+        .iter()
+        .map(|s| display_width(s.content.as_ref()))
+        .sum()
+}
+
+/// True when every char in the run is whitespace (or the run is empty).
+fn run_is_space(spans: &[Span<'_>]) -> bool {
+    spans
+        .iter()
+        .all(|s| s.content.chars().all(char::is_whitespace))
+}
+
+/// Split a line's spans into alternating whitespace / non-whitespace runs.
+///
+/// A span that straddles the boundary is split in two, so every run is
+/// uniform and the fill loop can treat it as one unit.
+fn split_runs(spans: Vec<Span<'static>>) -> Vec<Vec<Span<'static>>> {
+    let mut runs: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
+    let mut current_space: Option<bool> = None;
+
+    for span in spans {
+        let mut buf = String::new();
+        let mut buf_space: Option<bool> = None;
+        for c in span.content.chars() {
+            let is_space = c.is_whitespace();
+            if buf_space.is_some_and(|p| p != is_space) {
+                current.push(Span::styled(std::mem::take(&mut buf), span.style));
+            }
+            if current_space.is_some_and(|p| p != is_space) && !current.is_empty() {
+                runs.push(std::mem::take(&mut current));
+            }
+            current_space = Some(is_space);
+            buf_space = Some(is_space);
+            buf.push(c);
+        }
+        if !buf.is_empty() {
+            current.push(Span::styled(buf, span.style));
+        }
+    }
+    if !current.is_empty() {
+        runs.push(current);
+    }
+    runs
+}
+
+/// Hard-break a run that is wider than one row, at char boundaries, into
+/// pieces of at most `width` columns. Styles ride along with their chars.
+fn hard_break_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
+    let mut pieces: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut piece: Vec<Span<'static>> = Vec::new();
+    let mut col = 0usize;
+
+    for span in spans {
+        let mut buf = String::new();
+        for c in span.content.chars() {
+            let cw = c.width().unwrap_or(0);
+            // Break before a char that would overflow, unless the piece is
+            // still empty (a single over-wide char gets its own row) — the
+            // same rule `wrap` applies to plain strings.
+            if col + cw > width && col > 0 {
+                piece.push(Span::styled(std::mem::take(&mut buf), span.style));
+                pieces.push(std::mem::take(&mut piece));
+                col = 0;
+            }
+            buf.push(c);
+            col += cw;
+        }
+        if !buf.is_empty() {
+            piece.push(Span::styled(buf, span.style));
+        }
+    }
+    if !piece.is_empty() {
+        pieces.push(piece);
+    }
+    if pieces.is_empty() {
+        pieces.push(Vec::new());
+    }
+    pieces
+}
+
 /// Incremental hard-wrap accumulator for the streaming tail.
 ///
 /// The output pane renders the live (uncommitted) streaming text every frame.
@@ -228,6 +434,8 @@ impl WrapCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::layout::Alignment;
+    use ratatui::style::{Color, Modifier, Style};
 
     #[test]
     fn wrap_preserves_blank_lines_and_hard_wraps() {
@@ -289,6 +497,89 @@ mod tests {
                     "char-extend {s:?} @{width}"
                 );
             }
+        }
+    }
+
+    fn row_text(line: &Line<'_>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn wrap_line_is_identity_for_a_line_that_fits() {
+        let line = Line::from(vec![Span::raw("hello "), Span::raw("world")]);
+        let rows = wrap_line(line, 11);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(row_text(&rows[0]), "hello world");
+    }
+
+    #[test]
+    fn wrap_line_breaks_at_spaces_keeping_span_styles() {
+        let bold = Style::default().add_modifier(Modifier::BOLD);
+        let plain = Style::default();
+        let line = Line::from(vec![
+            Span::styled("hello ", bold),
+            Span::styled("world foo", plain),
+        ]);
+        let rows = wrap_line(line, 11);
+        // "hello world" fills the row exactly; "foo" moves down, the break
+        // space is consumed (never leads or trails a row).
+        let texts: Vec<String> = rows.iter().map(row_text).collect();
+        assert_eq!(texts, ["hello world", "foo"]);
+        // Styles ride with their chars across the break — including the join
+        // space, which keeps the style of the span it was cut out of.
+        assert_eq!(rows[0].spans[0].content.as_ref(), "hello");
+        assert_eq!(rows[0].spans[0].style, bold);
+        assert_eq!(rows[0].spans[1].content.as_ref(), " ");
+        assert_eq!(rows[0].spans[1].style, bold);
+        assert_eq!(rows[0].spans[2].content.as_ref(), "world");
+        assert_eq!(rows[0].spans[2].style, plain);
+        assert_eq!(rows[1].spans[0].content.as_ref(), "foo");
+        assert_eq!(rows[1].spans[0].style, plain);
+    }
+
+    #[test]
+    fn wrap_line_hard_breaks_a_word_longer_than_the_row() {
+        let rows = wrap_line(Line::from(Span::raw("abcdefghij")), 4);
+        let texts: Vec<String> = rows.iter().map(row_text).collect();
+        assert_eq!(texts, ["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn wrap_line_counts_wide_cjk_as_two_columns() {
+        // Four wide glyphs are 8 columns; at width 4 they split in half.
+        let rows = wrap_line(Line::from(Span::raw("你好世界")), 4);
+        assert_eq!(
+            rows.iter().map(row_text).collect::<Vec<_>>(),
+            ["你好", "世界"]
+        );
+        // A wide glyph straddling the boundary is pushed to the next row.
+        let rows = wrap_line(Line::from(Span::raw("a你b")), 3);
+        assert_eq!(rows.iter().map(row_text).collect::<Vec<_>>(), ["a你", "b"]);
+    }
+
+    #[test]
+    fn wrap_line_drops_the_break_space_and_keeps_indentation() {
+        // "aa bb" @4: the space that breaks the row is consumed, not kept.
+        let rows = wrap_line(Line::from(Span::raw("aa bb")), 4);
+        assert_eq!(rows.iter().map(row_text).collect::<Vec<_>>(), ["aa", "bb"]);
+        // Leading spaces are content (list nesting), not break debris.
+        let rows = wrap_line(Line::from(Span::raw("  abc")), 10);
+        assert_eq!(rows.iter().map(row_text).collect::<Vec<_>>(), ["  abc"]);
+    }
+
+    #[test]
+    fn wrap_line_keeps_line_style_and_alignment_on_every_row() {
+        let line = Line {
+            style: Style::default().fg(Color::Red),
+            alignment: Some(Alignment::Center),
+            spans: vec![Span::raw("aa bb cc")],
+        };
+        let rows = wrap_line(line, 5);
+        let texts: Vec<String> = rows.iter().map(row_text).collect();
+        assert_eq!(texts, ["aa bb", "cc"]);
+        for row in &rows {
+            assert_eq!(row.style.fg, Some(Color::Red));
+            assert_eq!(row.alignment, Some(Alignment::Center));
         }
     }
 

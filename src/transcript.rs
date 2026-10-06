@@ -88,6 +88,7 @@ impl<S> Transcript<S> {
                 detail: None,
                 text: line,
                 kind: LineKind::System,
+                            tool_state: None,
             });
         }
     }
@@ -104,6 +105,7 @@ impl<S> Transcript<S> {
             spans: Some(spans),
             original: None,
             detail: None,
+                    tool_state: None,
         });
     }
 
@@ -126,6 +128,7 @@ impl<S> Transcript<S> {
                 detail: None,
                 text: display,
                 kind: LineKind::User,
+                            tool_state: None,
             });
         }
     }
@@ -188,6 +191,7 @@ impl<S> Transcript<S> {
                         spans: None,
                         original: if j == 0 { Some(original.clone()) } else { None },
                         detail: None,
+                                            tool_state: None,
                     });
                 }
             } else {
@@ -220,6 +224,7 @@ mod tests {
             detail: None,
             text: text.to_string(),
             kind: LineKind::Plan,
+            tool_state: None,
         }
     }
 
@@ -291,6 +296,7 @@ mod tests {
             detail: None,
             text: "prose with markdown **bold**".to_string(),
             kind: LineKind::Normal,
+                    tool_state: None,
         });
         t.set_wrap_width(20);
         assert_eq!(texts(&t), vec!["prose with markdown **bold**"]);

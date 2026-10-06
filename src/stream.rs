@@ -140,7 +140,7 @@ impl<S> StreamState<S> {
     }
 
     /// Commit the pending thought. Long segments (more than 2 wrapped lines)
-    /// collapse into ONE folded `OutputLine` carrying a `LineDetail::Thought`
+    /// collapse into ONE folded `OutputLine` carrying a `LineDetail::Folded`
     /// (full raw + precomputed counts); the renderer decides folded vs
     /// expanded. Short segments keep the legacy per-line shape — folding a
     /// one-liner into a summary row would be noise.
@@ -173,6 +173,7 @@ impl<S> StreamState<S> {
                     detail: None,
                     text,
                     kind: LineKind::Thought,
+                                    tool_state: None,
                 });
             }
             return out;
@@ -202,13 +203,17 @@ impl<S> StreamState<S> {
         vec![OutputLine {
             spans: None,
             original: None,
-            detail: Some(LineDetail::Thought {
+            detail: Some(LineDetail::Folded {
                 raw,
                 line_count: wrapped.len(),
                 char_count,
+                // The thought's summary row is a count, not the thought's
+                // first line — the body owns the whole payload.
+                meta_head: crate::lines::MetaHead::None,
             }),
             text: first,
             kind: LineKind::Thought,
+                    tool_state: None,
         }]
     }
 
@@ -238,6 +243,7 @@ impl<S> StreamState<S> {
             detail: None,
             text,
             kind: LineKind::Normal,
+                    tool_state: None,
         }]
     }
 }
@@ -321,10 +327,11 @@ mod tests {
         let expected_first = crate::wrap::wrap(&body, 20)[0].clone();
         assert_eq!(l.text, expected_first);
         match &l.detail {
-            Some(LineDetail::Thought {
+            Some(LineDetail::Folded {
                 raw,
                 line_count,
                 char_count,
+                meta_head: _,
             }) => {
                 assert_eq!(raw, &body);
                 assert_eq!(*char_count, body.chars().count());
@@ -343,7 +350,7 @@ mod tests {
         assert_eq!(flushed.len(), 1);
         assert!(flushed[0].text.starts_with("[root/searcher] "));
         match &flushed[0].detail {
-            Some(LineDetail::Thought { raw, .. }) => assert!(
+            Some(LineDetail::Folded { raw, .. }) => assert!(
                 raw.starts_with("[root/searcher] "),
                 "detail.raw keeps the author: expansion wraps raw, and the                  loose-mode stream must not drop the prefix at the seam"
             ),
@@ -369,7 +376,7 @@ mod tests {
         assert_eq!(flushed.len(), 1);
         assert!(matches!(
             flushed[0].detail,
-            Some(LineDetail::Thought { .. })
+            Some(LineDetail::Folded { .. })
         ));
         let flushed = st.flush(); // the prose segment
         assert_eq!(flushed.len(), 1);
@@ -395,7 +402,7 @@ mod tests {
         assert_eq!(flushed.len(), 1, "boundary: 3 lines = folded");
         assert!(matches!(
             flushed[0].detail,
-            Some(LineDetail::Thought { .. })
+            Some(LineDetail::Folded { .. })
         ));
     }
 }

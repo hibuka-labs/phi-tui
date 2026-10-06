@@ -34,6 +34,7 @@
 pub mod completer;
 pub mod diff;
 pub mod input;
+pub mod layout;
 pub mod lines;
 pub mod markdown;
 pub mod mention;
