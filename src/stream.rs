@@ -173,7 +173,7 @@ impl<S> StreamState<S> {
                     detail: None,
                     text,
                     kind: LineKind::Thought,
-                                    tool_state: None,
+                    tool_state: None,
                 });
             }
             return out;
@@ -213,7 +213,7 @@ impl<S> StreamState<S> {
             }),
             text: first,
             kind: LineKind::Thought,
-                    tool_state: None,
+            tool_state: None,
         }]
     }
 
@@ -243,7 +243,7 @@ impl<S> StreamState<S> {
             detail: None,
             text,
             kind: LineKind::Normal,
-                    tool_state: None,
+            tool_state: None,
         }]
     }
 }
@@ -374,10 +374,7 @@ mod tests {
         st.push_thought(&"abcdef ".repeat(20), None);
         let flushed = st.push_text("answer", None); // implicit thought flush
         assert_eq!(flushed.len(), 1);
-        assert!(matches!(
-            flushed[0].detail,
-            Some(LineDetail::Folded { .. })
-        ));
+        assert!(matches!(flushed[0].detail, Some(LineDetail::Folded { .. })));
         let flushed = st.flush(); // the prose segment
         assert_eq!(flushed.len(), 1);
         assert_eq!(flushed[0].kind, LineKind::Normal);
@@ -400,9 +397,6 @@ mod tests {
         st.push_thought(&"x".repeat(41), None); // wraps to exactly 3 lines
         let flushed = st.flush();
         assert_eq!(flushed.len(), 1, "boundary: 3 lines = folded");
-        assert!(matches!(
-            flushed[0].detail,
-            Some(LineDetail::Folded { .. })
-        ));
+        assert!(matches!(flushed[0].detail, Some(LineDetail::Folded { .. })));
     }
 }

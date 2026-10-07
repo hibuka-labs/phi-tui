@@ -397,8 +397,10 @@ mod tests {
     fn zero_height_still_draws_a_content_row() {
         // `height: 0` (from a hand-built style, or a config that skipped the
         // clamp) must not shrink the band to bare chrome.
-        let mut style = PopupStyle::default();
-        style.height = 0;
+        let style = PopupStyle {
+            height: 0,
+            ..PopupStyle::default()
+        };
         let list = PopupList {
             rows: vec![Line::from("alpha"), Line::from("beta")],
             selected: 0,

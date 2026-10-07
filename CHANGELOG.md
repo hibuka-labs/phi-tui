@@ -4,6 +4,22 @@ All notable changes to phi-tui.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-07
+
+### Added
+
+- Span-aware `wrap_line`, folded blocks, layout module
+- `PopupList` widget with display-width elision
+- Thinking-panel kit + VisualMap extraction
+- Viewport: scroll-to-top pin + half-screen page step
+- Mention: navigate into directories instead of selecting them
+
+### Fixed
+
+- Elide honors a zero budget; add `pad_cols`
+- Completer Enter on a directory focuses its row
+- CJK-width-safe output; smarter skill completer
+
 ## [0.1.0] — 2026-09-06
 
 ### Added

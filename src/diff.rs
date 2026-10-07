@@ -100,11 +100,11 @@ pub fn diff_to_hunks_indexed(
     for &idx in &changed {
         let start = idx.saturating_sub(context);
         let end = (idx + context + 1).min(lines.len());
-        if let Some(last) = ranges.last_mut() {
-            if start <= last.1 {
-                last.1 = end;
-                continue;
-            }
+        if let Some(last) = ranges.last_mut()
+            && start <= last.1
+        {
+            last.1 = end;
+            continue;
         }
         ranges.push((start, end));
     }

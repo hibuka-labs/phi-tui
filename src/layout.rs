@@ -210,7 +210,10 @@ mod tests {
         assert!(compact.rows.is_empty());
 
         let full = folded_body(raw, MetaHead::Abbreviated, Preview::All);
-        assert_eq!(full.restore_head, Some("a very long head line that never fit"));
+        assert_eq!(
+            full.restore_head,
+            Some("a very long head line that never fit")
+        );
     }
 
     #[test]

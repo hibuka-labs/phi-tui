@@ -416,7 +416,7 @@ impl WrapCache {
             // Break before a char that would overflow the line, unless the line
             // is still empty (a single over-wide char still gets its own line) —
             // mirrors `wrap`.
-            let last_empty = self.lines.last().map_or(true, |l| l.is_empty());
+            let last_empty = self.lines.last().is_none_or(|l| l.is_empty());
             if self.col + cw > self.width && !last_empty {
                 self.lines.push(String::new());
                 self.col = 0;

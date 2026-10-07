@@ -107,10 +107,10 @@ impl SelectionState {
 
     /// Left-drag: move the selection head to `idx` (no-op when no selection).
     pub fn extend(&mut self, idx: Option<usize>) {
-        if let Some(idx) = idx {
-            if let Some(sel) = self.selection.as_mut() {
-                sel.head = idx;
-            }
+        if let Some(idx) = idx
+            && let Some(sel) = self.selection.as_mut()
+        {
+            sel.head = idx;
         }
     }
 
@@ -168,8 +168,7 @@ impl SelectionState {
 
     /// True when visual line `i` falls inside the active selection.
     pub fn is_selected(&self, i: usize, total: usize) -> bool {
-        self.range(total)
-            .map_or(false, |(lo, hi)| lo <= i && i <= hi)
+        self.range(total).is_some_and(|(lo, hi)| lo <= i && i <= hi)
     }
 
     /// The selected lines joined as plain text (what-you-see-is-what-you-copy).

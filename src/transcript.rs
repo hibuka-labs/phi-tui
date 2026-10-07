@@ -53,6 +53,10 @@ impl<S> Transcript<S> {
         self.output.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.output.is_empty()
+    }
+
     /// Append one committed line.
     pub fn push(&mut self, line: OutputLine<S>) {
         self.output.push(line);
@@ -88,7 +92,7 @@ impl<S> Transcript<S> {
                 detail: None,
                 text: line,
                 kind: LineKind::System,
-                            tool_state: None,
+                tool_state: None,
             });
         }
     }
@@ -105,7 +109,7 @@ impl<S> Transcript<S> {
             spans: Some(spans),
             original: None,
             detail: None,
-                    tool_state: None,
+            tool_state: None,
         });
     }
 
@@ -128,7 +132,7 @@ impl<S> Transcript<S> {
                 detail: None,
                 text: display,
                 kind: LineKind::User,
-                            tool_state: None,
+                tool_state: None,
             });
         }
     }
@@ -191,7 +195,7 @@ impl<S> Transcript<S> {
                         spans: None,
                         original: if j == 0 { Some(original.clone()) } else { None },
                         detail: None,
-                                            tool_state: None,
+                        tool_state: None,
                     });
                 }
             } else {
@@ -296,7 +300,7 @@ mod tests {
             detail: None,
             text: "prose with markdown **bold**".to_string(),
             kind: LineKind::Normal,
-                    tool_state: None,
+            tool_state: None,
         });
         t.set_wrap_width(20);
         assert_eq!(texts(&t), vec!["prose with markdown **bold**"]);

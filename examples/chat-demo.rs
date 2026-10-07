@@ -132,10 +132,10 @@ fn ui(
             _ => lines.push(Line::from(line.text.clone())),
         }
     }
-    if let Some((raw, kind)) = stream.tail_raw() {
-        if kind == LineKind::Normal {
-            lines.extend(render_markdown(raw));
-        }
+    if let Some((raw, kind)) = stream.tail_raw()
+        && kind == LineKind::Normal
+    {
+        lines.extend(render_markdown(raw));
     }
     f.render_widget(Paragraph::new(lines).wrap(RWrap { trim: false }), out);
 
@@ -154,7 +154,7 @@ fn setup() -> io::Result<Tui> {
     crossterm::terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
-    Ok(Terminal::new(CrosstermBackend::new(stdout))?)
+    Terminal::new(CrosstermBackend::new(stdout))
 }
 
 fn teardown(terminal: &mut Tui) -> io::Result<()> {
