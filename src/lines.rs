@@ -59,6 +59,11 @@ pub enum LineDetail {
         /// Total characters in `raw` (precomputed for the token estimate in
         /// thinking summaries; never re-derived at render time).
         char_count: usize,
+        /// Wall-clock seconds the segment took to produce, measured from the
+        /// segment's first delta to its commit (`None` for blocks whose fold
+        /// is built before the content exists, e.g. tool-payload folds).
+        /// Cosmetic, shown in the summary line.
+        duration_secs: Option<u64>,
         /// Whether the meta row already displays `raw`'s first line — see
         /// [`MetaHead`]. Recorded at commit time because the product is the
         /// only layer that knows what it wrote on the meta row.

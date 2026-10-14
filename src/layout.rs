@@ -153,6 +153,7 @@ mod tests {
             raw: "head\nbody".into(),
             line_count: 2,
             char_count: 9,
+            duration_secs: None,
             meta_head: MetaHead::Whole,
         });
         assert!(opens_block(&prose, &fold));

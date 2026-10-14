@@ -9,6 +9,7 @@
 use crate::lines::{LineDetail, LineKind, OutputLine};
 use crate::wrap::WrapCache;
 use std::marker::PhantomData;
+use std::time::Instant;
 
 /// Live, uncommitted streaming state for one turn.
 ///
@@ -25,6 +26,9 @@ pub struct StreamState<S = ()> {
     pending_text: String,
     pending_thought: String,
     pending_agent: Option<String>,
+    /// Start clock of the pending thought segment (its first delta) — the
+    /// measurement behind `LineDetail::Folded::duration_secs`.
+    thought_started: Option<Instant>,
     tail_wrap: WrapCache,
     _style: PhantomData<fn() -> S>,
 }
@@ -35,6 +39,7 @@ impl<S> StreamState<S> {
             pending_text: String::new(),
             pending_thought: String::new(),
             pending_agent: None,
+            thought_started: None,
             tail_wrap: WrapCache::new(width),
             _style: PhantomData,
         }
@@ -72,6 +77,7 @@ impl<S> StreamState<S> {
         }
         if self.pending_thought.is_empty() {
             self.pending_agent = agent;
+            self.thought_started = Some(Instant::now());
         }
         self.pending_thought.push_str(text);
         self.tail_wrap.extend(text);
@@ -150,6 +156,7 @@ impl<S> StreamState<S> {
         }
         let original = self.pending_thought.clone();
         self.pending_thought.clear();
+        let duration_secs = self.thought_started.take().map(|t| t.elapsed().as_secs());
         let agent_prefix = self
             .pending_agent
             .take()
@@ -207,6 +214,7 @@ impl<S> StreamState<S> {
                 raw,
                 line_count: wrapped.len(),
                 char_count,
+                duration_secs,
                 // The thought's summary row is a count, not the thought's
                 // first line — the body owns the whole payload.
                 meta_head: crate::lines::MetaHead::None,
@@ -331,11 +339,15 @@ mod tests {
                 raw,
                 line_count,
                 char_count,
+                duration_secs,
                 meta_head: _,
             }) => {
                 assert_eq!(raw, &body);
                 assert_eq!(*char_count, body.chars().count());
                 assert_eq!(*line_count, crate::wrap::wrap(&body, 20).len());
+                // A committed thought segment always carries its duration —
+                // the measurement is taken from the first delta to the flush.
+                assert!(duration_secs.is_some());
             }
             other => panic!("expected folded Thought detail, got {other:?}"),
         }
