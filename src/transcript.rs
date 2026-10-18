@@ -15,10 +15,34 @@
 //! (the update_plan tool's product semantics) is one consumer of this
 //! capability; the semantics of *what* a block means stay with the caller.
 
+use std::collections::VecDeque;
 use std::ops::Range;
 
 use crate::lines::{LineKind, OutputLine};
 use crate::wrap::wrap;
+
+/// Display rows a wrapped block occupies at `width`: the wrap itself, plus
+/// the per-row prefix the producers commit (User lines carry `> ` on the head
+/// row and an indented tail). The transcript stores exactly these rows — head
+/// with `original`, tail without — so re-wrap can recognize the previous
+/// wrap's tail by exact match instead of guessing from row shape.
+fn wrapped_display_rows(original: &str, width: usize, kind: LineKind) -> Vec<String> {
+    wrap(original, width)
+        .into_iter()
+        .enumerate()
+        .map(|(j, wrapped)| {
+            if kind == LineKind::User {
+                if j == 0 {
+                    format!("> {wrapped}")
+                } else {
+                    format!("  {wrapped}")
+                }
+            } else {
+                wrapped
+            }
+        })
+        .collect()
+}
 
 /// Default columns the output buffer wraps at. Overridden at runtime to match
 /// the terminal width (see [`Transcript::set_wrap_width`]).
@@ -79,13 +103,17 @@ impl<S> Transcript<S> {
         if width == self.wrap_width {
             return;
         }
+        let old_width = self.wrap_width;
         self.wrap_width = width;
-        self.rewrap_output();
+        self.rewrap_output(old_width);
     }
 
     /// Append a system/banner line (welcome, workspace, log path).
     pub fn push_system(&mut self, text: &str) {
-        for (i, line) in wrap(text, self.wrap_width).into_iter().enumerate() {
+        for (i, line) in wrapped_display_rows(text, self.wrap_width, LineKind::System)
+            .into_iter()
+            .enumerate()
+        {
             self.output.push(OutputLine {
                 spans: None,
                 original: if i == 0 { Some(text.to_string()) } else { None },
@@ -118,14 +146,10 @@ impl<S> Transcript<S> {
     /// turn log already stores `user_input`, but the rendered transcript didn't
     /// show it). `>` on the first line, indented continuations after.
     pub fn push_user(&mut self, text: &str) {
-        let mut first = true;
-        for (i, line) in wrap(text, self.wrap_width).into_iter().enumerate() {
-            let display = if first {
-                first = false;
-                format!("> {line}")
-            } else {
-                format!("  {line}")
-            };
+        for (i, display) in wrapped_display_rows(text, self.wrap_width, LineKind::User)
+            .into_iter()
+            .enumerate()
+        {
             self.output.push(OutputLine {
                 spans: None,
                 original: if i == 0 { Some(text.to_string()) } else { None },
@@ -163,43 +187,63 @@ impl<S> Transcript<S> {
     /// Re-wrap all committed output lines that have an `original` source.
     /// Called when the terminal width changes so output lines follow the new
     /// width instead of staying at the old wrap width.
-    fn rewrap_output(&mut self) {
-        let mut new: Vec<OutputLine<S>> = Vec::with_capacity(self.output.len());
-        for line in self.output.drain(..) {
-            if let Some(ref original) = line.original {
-                if original.is_empty() || line.spans.is_some() {
-                    // Banner lines or empty originals: keep as-is.
-                    new.push(line);
-                    continue;
-                }
-                // Normal AI prose: keep as a single line; the renderer handles
-                // markdown parsing and wrapping at display time.
-                if line.kind == LineKind::Normal {
-                    new.push(line);
-                    continue;
-                }
-                let kind = line.kind;
-                for (j, wrapped) in wrap(original, self.wrap_width).into_iter().enumerate() {
-                    let display = if kind == LineKind::User {
-                        if j == 0 {
-                            format!("> {wrapped}")
-                        } else {
-                            format!("  {wrapped}")
-                        }
-                    } else {
-                        wrapped
-                    };
-                    new.push(OutputLine {
-                        text: display,
-                        kind,
-                        spans: None,
-                        original: if j == 0 { Some(original.clone()) } else { None },
-                        detail: None,
-                        tool_state: None,
-                    });
-                }
-            } else {
+    ///
+    /// A wrapped block is a head row (`original: Some`) plus the tail rows its
+    /// previous wrap produced (`original: None`, always directly after the
+    /// head). The tail is display residue of the old width: regenerating the
+    /// block at the new width replaces it, so it must be dropped first or the
+    /// transcript keeps stale word-mid fragments below the fresh rows (the
+    /// long-notice glitch — a full-width wrapped notice with a duplicate
+    /// fragment row underneath, recurring on every resize). Tail rows are
+    /// recognized by exact match against the wrap at `old_width` and bounded
+    /// by that wrap's row count, so a standalone row that merely sits next to
+    /// a head (same kind, `original: None`) is never eaten.
+    fn rewrap_output(&mut self, old_width: usize) {
+        let mut rest: VecDeque<OutputLine<S>> = std::mem::take(&mut self.output).into();
+        let mut new: Vec<OutputLine<S>> = Vec::with_capacity(rest.len());
+        while let Some(line) = rest.pop_front() {
+            let Some(original) = line.original.clone() else {
                 new.push(line);
+                continue;
+            };
+            if original.is_empty() || line.spans.is_some() {
+                // Banner lines or empty originals: keep as-is.
+                new.push(line);
+                continue;
+            }
+            // Normal AI prose: keep as a single line; the renderer handles
+            // markdown parsing and wrapping at display time.
+            if line.kind == LineKind::Normal {
+                new.push(line);
+                continue;
+            }
+            let kind = line.kind;
+            // Drop the previous wrap's tail rows before regenerating them.
+            let prior = wrapped_display_rows(&original, old_width, kind);
+            for expected in prior.iter().skip(1) {
+                let is_tail = rest.front().is_some_and(|next| {
+                    next.original.is_none()
+                        && next.spans.is_none()
+                        && next.kind == kind
+                        && next.text == *expected
+                });
+                if !is_tail {
+                    break;
+                }
+                rest.pop_front();
+            }
+            for (j, display) in wrapped_display_rows(&original, self.wrap_width, kind)
+                .into_iter()
+                .enumerate()
+            {
+                new.push(OutputLine {
+                    text: display,
+                    kind,
+                    spans: None,
+                    original: if j == 0 { Some(original.clone()) } else { None },
+                    detail: None,
+                    tool_state: None,
+                });
             }
         }
         self.output = new;
@@ -304,5 +348,74 @@ mod tests {
         });
         t.set_wrap_width(20);
         assert_eq!(texts(&t), vec!["prose with markdown **bold**"]);
+    }
+
+    #[test]
+    fn rewrap_drops_the_previous_wraps_stale_tail() {
+        // The long-notice glitch: a block that already spans rows at the old
+        // width must not leave its stale tail below the re-wrapped head.
+        let mut t = Transcript::new();
+        t.set_wrap_width(10);
+        t.push_system("0123456789abc");
+        assert_eq!(texts(&t), vec!["0123456789", "abc"]);
+        // Narrower: exactly the fresh wrap — the old "abc" tail is gone.
+        t.set_wrap_width(7);
+        assert_eq!(texts(&t), vec!["0123456", "789abc"]);
+        // Wider again: the old "789abc" tail must not survive either.
+        t.set_wrap_width(13);
+        assert_eq!(texts(&t), vec!["0123456789abc"]);
+    }
+
+    #[test]
+    fn rewrap_drops_the_previous_wraps_stale_tail_on_user_lines() {
+        // User rows carry the `> `/`  ` prefix — the tail match has to use the
+        // same display rows the producer committed.
+        let mut t = Transcript::new();
+        t.set_wrap_width(10);
+        t.push_user("0123456789ab");
+        assert_eq!(texts(&t), vec!["> 0123456789", "  ab"]);
+        t.set_wrap_width(8);
+        assert_eq!(texts(&t), vec!["> 01234567", "  89ab"]);
+    }
+
+    #[test]
+    fn rewrap_drops_the_previous_wraps_stale_tail_for_wide_chars() {
+        // CJK rows wrap on display width, so the tail fragments split mid-
+        // phrase — exactly the acceptance symptom (a full-width notice with a
+        // word-mid duplicate fragment underneath).
+        let mut t = Transcript::new();
+        t.set_wrap_width(10);
+        let notice = "版本发布通知：插件插座已就绪，欢迎试用";
+        t.push_system(notice);
+        let at_10 = wrap(notice, 10);
+        assert_eq!(
+            texts(&t),
+            at_10.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        t.set_wrap_width(6);
+        let at_6 = wrap(notice, 6);
+        assert_eq!(
+            texts(&t),
+            at_6.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn rewrap_keeps_standalone_rows_next_to_a_head() {
+        // Standalone rows (tool lines, status lines) share a head's kind and
+        // carry `original: None` — only the old wrap's exact tail is residue.
+        let mut t = Transcript::new();
+        t.set_wrap_width(10);
+        t.push_system("0123456789abc");
+        t.push(OutputLine {
+            spans: None,
+            original: None,
+            detail: None,
+            text: "standalone status".to_string(),
+            kind: LineKind::System,
+            tool_state: None,
+        });
+        t.set_wrap_width(7);
+        assert_eq!(texts(&t), vec!["0123456", "789abc", "standalone status"]);
     }
 }

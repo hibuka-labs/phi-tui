@@ -4,6 +4,16 @@ All notable changes to phi-tui.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-18
+
+### Added
+- Thought-fold duration is tracked from the first delta to the commit.
+
+### Fixed
+- Resize rewrap drops the previous wrap's stale tail exactly: old wrap
+  continuation fragments no longer bleed into the new block (standalone rows
+  next to a head are kept; wide chars handled).
+
 ## [0.2.0] — 2026-10-07
 
 ### Added
