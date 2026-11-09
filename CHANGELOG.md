@@ -4,6 +4,24 @@ All notable changes to phi-tui.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-09
+
+### Added
+- **Selection is a character, not a line.** `selection.rs` models a
+  selection point as a character anchor (`CharPoint { row, col }`) that snaps
+  to the first cell of the glyph under the pointer, a click chain (single,
+  double, triple), word runs, and block bounds — combining marks belong to
+  their base character. `visual.rs` gained a three-dimensional seam model
+  (`Break`, `Space`, `Glue`) so a wrapped line knows how its cells join.
+- **`HistoryRing` — a fish-style history ring** with a draft slot, wrapping in
+  both directions.
+
+### Changed
+- **A plan block that updates moves to the tail of the output.** The old
+  block is removed (no residue, no blank line) and the new one is appended;
+  the viewport absorbs the row shift through the content anchor, so a
+  scrolled screen does not move.
+
 ## [0.3.0] — 2026-10-18
 
 ### Added

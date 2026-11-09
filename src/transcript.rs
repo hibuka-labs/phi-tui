@@ -8,12 +8,15 @@
 //! `S` is the style token carried by styled lines (see [`OutputLine`]); the
 //! transcript itself is style-token agnostic.
 //!
-//! Generic capability note: `replace_plan` / `clear_plan` implement an
-//! "anchored, replaceable block" — a contiguous range of lines that a later
-//! full-replace splices out in place instead of appending a duplicate, and
+//! Generic capability note: `replace_plan` / `clear_plan` implement a
+//! "tracked, replaceable block" — a contiguous range of lines that a later
+//! full-replace removes so the fresh block can re-append at the tail, and
 //! that a turn boundary can reset so the next block appends. `LineKind::Plan`
 //! (the update_plan tool's product semantics) is one consumer of this
 //! capability; the semantics of *what* a block means stay with the caller.
+//! Each removal shifts the output indices below it, so the shifts are
+//! recorded ([`Transcript::take_index_moves`]) for cross-frame row identity
+//! (scroll anchors — see `crate::visual::BlockAnchor::translate`).
 
 use std::collections::VecDeque;
 use std::ops::Range;
@@ -55,10 +58,16 @@ pub const DEFAULT_WRAP_WIDTH: usize = 100;
 pub struct Transcript<S = ()> {
     pub output: Vec<OutputLine<S>>,
     /// Start of the current anchored block (the plan block) in `output`. The
-    /// block's contract is "full block replaces previous", so a later update
-    /// splices this range out and re-inserts at the same position instead of
-    /// appending a duplicate. Cleared at each turn start.
+    /// block's contract is "full block replaces previous": a later update
+    /// removes this range and appends the fresh block at the tail (the plan
+    /// must stay visible at the flow end), and tracks the new position here.
+    /// Cleared at each turn start.
     plan_range: Option<Range<usize>>,
+    /// Output-index ranges removed since the last [`Self::take_index_moves`],
+    /// each in the numbering current at its splice, chronological. A
+    /// consumer that captured a row identity before these splices (the
+    /// render seam's scroll anchor) translates it back to life through them.
+    index_moves: Vec<Range<usize>>,
     /// Dynamic wrap width for output lines, updated each frame to match the
     /// terminal width. Keeps output and composer widths aligned.
     wrap_width: usize,
@@ -69,6 +78,7 @@ impl<S> Transcript<S> {
         Self {
             output: Vec::new(),
             plan_range: None,
+            index_moves: Vec::new(),
             wrap_width: DEFAULT_WRAP_WIDTH,
         }
     }
@@ -167,21 +177,32 @@ impl<S> Transcript<S> {
         self.plan_range = None;
     }
 
-    /// Replace the previous anchored block (the plan block) in place so it
-    /// stays anchored where it first appeared (the caller always sends the
-    /// full block). When no block is tracked yet, the new block is appended.
+    /// Replace the previous anchored block (the plan block): the old block is
+    /// removed and the fresh one appended at the tail — a plan update moves
+    /// the plan to the flow end so it stays visible (the caller always sends
+    /// the full block). When no block is tracked yet, the new block is
+    /// appended (first-block behavior, unchanged).
+    ///
+    /// The removal shifts every output index below the old block, so it is
+    /// recorded for [`Self::take_index_moves`] — scroll anchors captured
+    /// before this splice translate through those moves instead of jumping.
     pub fn replace_plan(&mut self, block: Vec<OutputLine<S>>) {
         let new_len = block.len();
-        let start = self
-            .plan_range
-            .as_ref()
-            .map_or(self.output.len(), |r| r.start);
         if let Some(range) = self.plan_range.take() {
-            self.output.splice(range, block);
-        } else {
-            self.output.extend(block);
+            self.output.drain(range.clone());
+            self.index_moves.push(range);
         }
+        let start = self.output.len();
+        self.output.extend(block);
         self.plan_range = Some(start..start + new_len);
+    }
+
+    /// Drain the output-index ranges removed since the last call (each in
+    /// the numbering current at its splice, chronological). The render seam
+    /// calls this once per frame and translates its scroll anchor through
+    /// them (see `crate::visual::BlockAnchor::translate`).
+    pub fn take_index_moves(&mut self) -> Vec<Range<usize>> {
+        std::mem::take(&mut self.index_moves)
     }
 
     /// Re-wrap all committed output lines that have an `original` source.
@@ -310,26 +331,71 @@ mod tests {
         assert_eq!(texts(&t), vec!["> abcdefghij", "  k"]);
     }
 
+    /// protects: a plan update MOVES the block to the tail — the old block's
+    /// rows vanish exactly (no residue, no blank row where it sat) and the
+    /// fresh block is the flow's last rows; the removal is recorded so a
+    /// scroll anchor can translate through it. fails_when: the second block
+    /// lands anywhere but the tail, an old row survives, or the shift goes
+    /// unrecorded. no_claim: what the plan block's rows say, or where the
+    /// viewport sits afterwards.
     #[test]
-    fn replace_plan_appends_then_replaces_in_place() {
+    fn replace_plan_repastes_at_tail_without_residue() {
         let mut t = Transcript::new();
         t.push_user("hello");
-        t.replace_plan(vec![plan_line("📋 目标A")]);
-        t.replace_plan(vec![plan_line("📋 目标B")]);
-        // The second full-plan update replaced the first in place, so only one
-        // plan block remains, anchored after the user line.
-        assert_eq!(texts(&t), vec!["> hello", "📋 目标B"]);
+        t.replace_plan(vec![plan_line("📋 A1"), plan_line("📋 A2")]);
+        t.push_user("world");
+        t.replace_plan(vec![plan_line("📋 B")]);
+        // Line-by-line: the old block left nothing behind at its position
+        // (between the two user lines) and the new block is the tail.
+        assert_eq!(texts(&t), vec!["> hello", "> world", "📋 B"]);
+        // The splice that moved the block is the recorded index move: rows
+        // 1..3 (the old block, pre-splice numbering) vanished.
+        assert_eq!(t.take_index_moves(), vec![1..3]);
+        assert!(t.take_index_moves().is_empty(), "moves drain once");
     }
 
+    /// protects: the first block simply appends — no removal happens before
+    /// a block is tracked. fails_when: a first plan eats existing lines or
+    /// lands anywhere but the tail. no_claim: later updates (covered by the
+    /// re-paste test).
     #[test]
-    fn clear_plan_makes_next_plan_append() {
+    fn replace_plan_first_block_appends() {
+        let mut t = Transcript::new();
+        t.push_user("hello");
+        t.replace_plan(vec![plan_line("📋 A")]);
+        assert_eq!(texts(&t), vec!["> hello", "📋 A"]);
+    }
+
+    /// protects: a multi-row block moves whole, and a height change between
+    /// old and new block (3 rows out, 1 row in) is just delete + append.
+    /// fails_when: rows of the old block survive, or the new block's rows
+    /// interleave with the old position. no_claim: what any row says.
+    #[test]
+    fn replace_plan_multiline_block_moves_whole() {
+        let mut t = Transcript::new();
+        t.replace_plan(vec![
+            plan_line("📋 A1"),
+            plan_line("📋 A2"),
+            plan_line("📋 A3"),
+        ]);
+        t.push_user("mid");
+        t.replace_plan(vec![plan_line("📋 B1")]);
+        assert_eq!(texts(&t), vec!["> mid", "📋 B1"]);
+    }
+
+    /// protects: a turn boundary resets only the tracking — the previous
+    /// turn's block stays where it was, and the next block appends at the
+    /// tail (with interleaved content in between). fails_when: the old
+    /// block moves, disappears, or the new block replaces it. no_claim:
+    /// what triggers the boundary (`clear_plan`'s caller is the turn start).
+    #[test]
+    fn clear_plan_keeps_the_old_block_and_appends_the_next() {
         let mut t = Transcript::new();
         t.replace_plan(vec![plan_line("📋 A")]);
-        // A new turn resets the tracked range, so the next plan appends
-        // instead of replacing the previous turn's block.
+        t.push_user("next turn");
         t.clear_plan();
         t.replace_plan(vec![plan_line("📋 B")]);
-        assert_eq!(texts(&t), vec!["📋 A", "📋 B"]);
+        assert_eq!(texts(&t), vec!["📋 A", "> next turn", "📋 B"]);
     }
 
     #[test]

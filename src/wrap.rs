@@ -12,27 +12,39 @@ use unicode_width::UnicodeWidthChar;
 /// column count (ASCII = 1, wide CJK = 2, combining marks = 0), so a line of
 /// Chinese wraps at the same visual width as a line of English.
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    wrap_rows(text, width).into_iter().map(|(s, _)| s).collect()
+}
+
+/// Like [`wrap`], but every row also carries its copy [`Seam`](crate::visual::Seam)
+/// — how it joins to the previous row. A break that split one logical line
+/// (over-long run) is [`Seam::Glue`]; a row that follows a real newline is
+/// [`Seam::Break`]. The breaking whitespace is kept as the next row's leading
+/// space (never dropped), so a glued seam reproduces the text exactly.
+pub fn wrap_rows(text: &str, width: usize) -> Vec<(String, crate::visual::Seam)> {
+    use crate::visual::Seam;
     let width = width.max(1);
     let mut out = Vec::new();
     for raw in text.split('\n') {
         if raw.is_empty() {
-            out.push(String::new());
+            out.push((String::new(), Seam::Break));
             continue;
         }
         let mut line = String::new();
         let mut col = 0usize;
+        let mut seam = Seam::Break;
         for c in raw.chars() {
             let cw = c.width().unwrap_or(0);
             // Break before a char that would overflow the line, unless the line
             // is still empty (a single over-wide char still gets its own line).
             if col + cw > width && !line.is_empty() {
-                out.push(std::mem::take(&mut line));
+                out.push((std::mem::take(&mut line), seam));
                 col = 0;
+                seam = Seam::Glue;
             }
             line.push(c);
             col += cw;
         }
-        out.push(line);
+        out.push((line, seam));
     }
     out
 }
@@ -185,9 +197,25 @@ fn take_tail(s: &str, budget: usize, sep: Option<char>) -> String {
 ///
 /// The line's own `style` and `alignment` are carried onto every row.
 pub fn wrap_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
+    wrap_line_rows(line, width)
+        .into_iter()
+        .map(|(l, _)| l)
+        .collect()
+}
+
+/// Like [`wrap_line`], but every row also carries its copy
+/// [`Seam`](crate::visual::Seam). The breaking whitespace is *consumed* by the
+/// wrap (it is dropped from both rows, keeping the rows gap-free on screen),
+/// so a break at whitespace re-joins with [`Seam::Space`] and a hard break
+/// inside a run with [`Seam::Glue`].
+pub fn wrap_line_rows(
+    line: Line<'static>,
+    width: usize,
+) -> Vec<(Line<'static>, crate::visual::Seam)> {
+    use crate::visual::Seam;
     let width = width.max(1);
     if display_width_line(&line) <= width {
-        return vec![line];
+        return vec![(line, Seam::Break)];
     }
     let Line {
         style,
@@ -195,15 +223,23 @@ pub fn wrap_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
         spans,
     } = line;
 
-    let mut out: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut out: Vec<(Vec<Span<'static>>, Seam)> = Vec::new();
     let mut row: Vec<Span<'static>> = Vec::new();
     let mut col = 0usize;
+    // The seam of the row being built (how it joins to the previous one), and
+    // whether the current row's tail is a whitespace run (`Some` = yes, and
+    // whether that run held a real newline).
+    let mut seam = Seam::Break;
+    let mut tail_space: Option<bool> = None;
 
     // Flatten to alternating whitespace / non-whitespace runs, each keeping
     // the spans it was cut out of. Doing this up front keeps the fill loop
     // simple: it never has to think about span boundaries.
     for run in split_runs(spans) {
         let is_space = run_is_space(&run);
+        let run_newline = run
+            .iter()
+            .any(|s| s.content.contains('\n') || s.content.contains('\r'));
         let w = display_width_spans(&run);
         if is_space {
             if row.is_empty() {
@@ -218,51 +254,71 @@ pub fn wrap_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
                 }
                 col += w;
                 row.extend(run);
+                tail_space = Some(run_newline);
                 continue;
             }
             if col + w > width {
-                out.push(std::mem::take(&mut row));
+                out.push((std::mem::take(&mut row), seam));
                 col = 0;
+                seam = if run_newline {
+                    Seam::Break
+                } else {
+                    Seam::Space
+                };
+                tail_space = None;
                 continue;
             }
             col += w;
             row.extend(run);
+            tail_space = Some(run_newline);
             continue;
         }
         if col + w <= width {
             col += w;
             row.extend(run);
+            tail_space = None;
             continue;
         }
         // Doesn't fit on this row. Put it on a fresh one — and if it is still
         // too wide for a whole row, hard-break it at char boundaries.
         if !row.is_empty() {
-            out.push(std::mem::take(&mut row));
+            out.push((std::mem::take(&mut row), seam));
             col = 0;
+            seam = match tail_space {
+                None => Seam::Glue,
+                Some(false) => Seam::Space,
+                Some(true) => Seam::Break,
+            };
+            tail_space = None;
         }
         for piece in hard_break_spans(run, width) {
             let pw = display_width_spans(&piece);
             if col + pw > width && !row.is_empty() {
-                out.push(std::mem::take(&mut row));
+                out.push((std::mem::take(&mut row), seam));
                 col = 0;
+                seam = Seam::Glue;
             }
             col += pw;
             row.extend(piece);
+            tail_space = None;
         }
     }
-    out.push(row);
+    out.push((row, seam));
 
     out.into_iter()
-        .map(|mut row| {
+        .map(|(mut row, seam)| {
             // A space that fit at the row end stays in `row` even though the
             // next run broke to a new row; drop it so every row's plain text
             // (selection/copy) has no phantom trailing gap.
             trim_trailing_space(&mut row);
-            Line {
-                style,
-                alignment,
-                spans: row,
-            }
+            (
+                Line {
+                    style,
+                    alignment,
+                    spans: row,
+                },
+                seam,
+            )
         })
         .collect()
 }

@@ -3,9 +3,10 @@
 
 use phi_tui::lines::{LineKind, OutputLine};
 use phi_tui::markdown::{line_plain_text, render_markdown};
-use phi_tui::selection::SelectionState;
+use phi_tui::selection::{CharPoint, SelectionState};
 use phi_tui::transcript::Transcript;
 use phi_tui::viewport::Viewport;
+use phi_tui::visual::VisualMap;
 use phi_tui::wrap::wrap;
 
 /// transcript + wrap + viewport full chain: committed lines re-wrap on width
@@ -60,16 +61,24 @@ fn markdown_visual_text_matches_selection_copy() {
             .all(|l| !l.contains('#') || l.starts_with("Title"))
     );
 
-    // A selection spanning every visual line copies exactly the displayed text.
+    // A selection spanning every visual line copies exactly the displayed text
+    // (soft-wrap seams rejoin the wrapped rows; these are one row per line).
+    let mut map = VisualMap::new();
+    for row in &visual {
+        map.push_mapped(map.len(), row.clone());
+    }
     let mut sel = SelectionState::new();
-    sel.anchor(Some(0));
-    sel.extend(Some(visual.len() - 1));
-    let copied = sel.text(&Vec::<String>::new(), &visual);
+    sel.anchor(Some(CharPoint { row: 0, col: 0 }));
+    sel.extend(Some(CharPoint {
+        row: visual.len() - 1,
+        col: 999,
+    }));
+    let copied = sel.text(&Vec::<String>::new(), &map);
     assert_eq!(copied, visual.join("\n"));
 
     // The raw-line fallback path (before the first render) agrees per line.
     let raw: Vec<String> = visual.clone();
-    let no_visual: Vec<String> = Vec::new();
+    let no_visual = VisualMap::new();
     let copied_fallback = sel.text(&raw, &no_visual);
     assert_eq!(copied_fallback, visual.join("\n"));
 }

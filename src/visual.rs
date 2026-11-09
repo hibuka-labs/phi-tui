@@ -29,11 +29,64 @@ pub struct BlockAnchor {
     pub intra: usize,
 }
 
+/// Translate an output index captured before `moves` into current numbering.
+///
+/// `moves` are mid-flow removals — ranges spliced out of the output buffer
+/// (the plan block's re-paste), each in the numbering current at its splice,
+/// chronological (see `crate::transcript::Transcript::take_index_moves`).
+/// Rows below a removal shift up by its length; rows inside a removed range
+/// map to the boundary — the index their removal opened up, i.e. the line
+/// that took their place — so an anchor into vanished content lands on the
+/// nearest living content instead of a raw-index jump.
+pub fn translate_index(moves: &[std::ops::Range<usize>], idx: usize) -> usize {
+    let mut out = idx;
+    for m in moves {
+        if m.is_empty() {
+            continue;
+        }
+        if out >= m.end {
+            out -= m.len();
+        } else if out >= m.start {
+            out = m.start;
+        }
+    }
+    out
+}
+
+/// How a row joins to the previous one in copied plain text. A wrap splits
+/// one logical line into several visual rows; copying must rejoin them the
+/// way they read on screen, not with a fabricated line break (and not glued
+/// into one word where the wrap ate a space).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Seam {
+    /// A hard break (a real newline, or a structural row boundary such as a
+    /// prefixed diff/payload row): joins with `\n`.
+    #[default]
+    Break,
+    /// A soft wrap that consumed the breaking whitespace: joins with a space.
+    Space,
+    /// A soft wrap inside a word/character run (a long path, CJK text):
+    /// joins with nothing.
+    Glue,
+}
+
+impl Seam {
+    /// The plain-text joiner this seam inserts between two rows.
+    pub fn joiner(self) -> &'static str {
+        match self {
+            Seam::Break => "\n",
+            Seam::Space => " ",
+            Seam::Glue => "",
+        }
+    }
+}
+
 /// The visual→output mapping one render pass produces.
 #[derive(Debug, Default, Clone)]
 pub struct VisualMap {
     to_output: Vec<usize>,
     texts: Vec<String>,
+    seams: Vec<Seam>,
 }
 
 impl VisualMap {
@@ -45,13 +98,23 @@ impl VisualMap {
         Self {
             to_output: Vec::with_capacity(n),
             texts: Vec::with_capacity(n),
+            seams: Vec::with_capacity(n),
         }
     }
 
-    /// Append one visual row belonging to committed output line `output_idx`.
+    /// Append one visual row belonging to committed output line `output_idx`,
+    /// starting a fresh row (hard break or structural boundary).
     pub fn push_mapped(&mut self, output_idx: usize, text: String) {
+        self.push_seamed(output_idx, text, Seam::Break);
+    }
+
+    /// Append one visual row carrying its copy seam (how it joins to the
+    /// previous row): [`Seam::Space`] / [`Seam::Glue`] rows are soft-wrap
+    /// continuations of the same logical line.
+    pub fn push_seamed(&mut self, output_idx: usize, text: String, seam: Seam) {
         self.to_output.push(output_idx);
         self.texts.push(text);
+        self.seams.push(seam);
     }
 
     /// Append one visual row that belongs to no output line (streaming tail,
@@ -73,9 +136,36 @@ impl VisualMap {
         self.to_output.get(visual_idx).copied()
     }
 
+    /// How a visual row joins to its predecessor in copied text
+    /// ([`Seam::Break`] out of range or when never recorded).
+    pub fn seam_at(&self, visual_idx: usize) -> Seam {
+        self.seams.get(visual_idx).copied().unwrap_or_default()
+    }
+
     /// Plain text of every row, in visual order (copy source).
     pub fn texts(&self) -> &[String] {
         &self.texts
+    }
+
+    /// The inclusive visual-row span of the output line's block around `row`
+    /// (a logical line can expand to many visual rows). `None` for
+    /// unselectable rows and out-of-range rows.
+    pub fn block_bounds(&self, row: usize) -> Option<(usize, usize)> {
+        let out = *self.to_output.get(row)?;
+        if out == UNSELECTABLE {
+            return None;
+        }
+        let top = self.to_output[..row]
+            .iter()
+            .rposition(|&i| i != out)
+            .map(|p| p + 1)
+            .unwrap_or(0);
+        let bottom = self.to_output[row..]
+            .iter()
+            .position(|&i| i != out)
+            .map(|p| row + p - 1)
+            .unwrap_or(self.to_output.len() - 1);
+        Some((top, bottom))
     }
 
     /// Capture where the window head sits: its output line + offset inside
@@ -113,6 +203,23 @@ impl VisualMap {
             .take_while(|&i| *i == anchor.output)
             .count();
         Some(top + anchor.intra.min(block_len.saturating_sub(1)))
+    }
+}
+
+impl BlockAnchor {
+    /// Map this anchor through mid-flow removals (see [`translate_index`])
+    /// before resolving it against a map built from the mutated buffer: the
+    /// anchor was captured in the pre-splice numbering, and rows below a
+    /// removal changed index. An anchor whose line was removed resets its
+    /// intra offset (the boundary line's block starts fresh).
+    pub fn translate(self, moves: &[std::ops::Range<usize>]) -> BlockAnchor {
+        let survived = !moves
+            .iter()
+            .any(|m| !m.is_empty() && m.contains(&self.output));
+        BlockAnchor {
+            output: translate_index(moves, self.output),
+            intra: if survived { self.intra } else { 0 },
+        }
     }
 }
 
@@ -231,5 +338,63 @@ mod tests {
             }
         );
         assert_eq!(m.resolve_anchor(a), Some(1));
+    }
+
+    /// protects: an anchor captured before a mid-flow removal (the plan
+    /// block's re-paste, `1..3` out) translates to the same living line's
+    /// new index before resolving — the scrolled-up frame holds still.
+    /// fails_when: the anchor resolves against the pre-splice numbering and
+    /// lands on the wrong line (the frame jumps). no_claim: what the
+    /// viewport does with the resolved head.
+    // A one-move list is exactly the case under test — the lint's "you meant
+    // `vec![x; n]`" heuristic does not apply.
+    #[allow(clippy::single_range_in_vec_init)]
+    #[test]
+    fn translate_shifts_anchors_below_a_removal() {
+        let moves = [1..3];
+        // Lines below the removed range shift up by its length; above stay.
+        assert_eq!(translate_index(&moves, 0), 0);
+        assert_eq!(translate_index(&moves, 4), 2);
+        // Intra offset survives — the owning line did.
+        let a = BlockAnchor {
+            output: 4,
+            intra: 2,
+        }
+        .translate(&moves);
+        assert_eq!(
+            a,
+            BlockAnchor {
+                output: 2,
+                intra: 2
+            }
+        );
+    }
+
+    /// protects: an anchor INSIDE the removed range lands on the boundary
+    /// (the line that took its place) with a fresh intra offset — nearest
+    /// living content, not a raw-index jump. fails_when: the anchor points
+    /// at vanished rows and the view teleports. no_claim: that the boundary
+    /// is what the user wants to read — the content they anchored on is
+    /// gone; this is the least-surprise landing.
+    #[allow(clippy::single_range_in_vec_init)] // one-move list, see above
+    #[test]
+    fn translate_maps_removed_content_to_the_boundary() {
+        let moves = [1..3];
+        assert_eq!(translate_index(&moves, 2), 1);
+        let a = BlockAnchor {
+            output: 2,
+            intra: 5,
+        }
+        .translate(&moves);
+        assert_eq!(
+            a,
+            BlockAnchor {
+                output: 1,
+                intra: 0
+            }
+        );
+        // Chained removals compose chronologically.
+        let chained = [1..3, 0..1];
+        assert_eq!(translate_index(&chained, 4), 1);
     }
 }

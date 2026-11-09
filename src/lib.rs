@@ -33,6 +33,7 @@
 
 pub mod completer;
 pub mod diff;
+pub mod history;
 pub mod input;
 pub mod layout;
 pub mod lines;
