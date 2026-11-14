@@ -1,7 +1,7 @@
 //! Pure transcript→row algorithms: block rhythm and the fold preview ladder.
 //!
 //! No styles, no copy, no agent semantics. The product decides what a line
-//! means, what its meta row says ([`MetaHead`](crate::lines::MetaHead)), and
+//! means, what its meta row says ([`MetaHead`]), and
 //! how many payload rows a tier wants on screen; these functions only decide
 //! where the blank spacer rows go and which rows of a folded payload are
 //! still owed the reader.
@@ -54,9 +54,9 @@ pub enum Preview {
     All,
 }
 
-/// Which payload rows of a [`LineDetail::Folded`] block a tier still owes the
-/// reader. Pure row bookkeeping — wrapping, indenting and painting stay with
-/// the caller.
+/// Which payload rows of a [`LineDetail::Folded`](crate::lines::LineDetail::Folded)
+/// block a tier still owes the reader. Pure row bookkeeping — wrapping,
+/// indenting and painting stay with the caller.
 #[derive(Debug, PartialEq, Eq)]
 pub struct FoldBody<'a> {
     /// `raw`'s first line, when the meta row shows it *truncated* and the

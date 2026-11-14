@@ -17,8 +17,9 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 
 /// Like [`wrap`], but every row also carries its copy [`Seam`](crate::visual::Seam)
 /// — how it joins to the previous row. A break that split one logical line
-/// (over-long run) is [`Seam::Glue`]; a row that follows a real newline is
-/// [`Seam::Break`]. The breaking whitespace is kept as the next row's leading
+/// (over-long run) is [`Seam::Glue`](crate::visual::Seam::Glue); a row that
+/// follows a real newline is [`Seam::Break`](crate::visual::Seam::Break). The
+/// breaking whitespace is kept as the next row's leading
 /// space (never dropped), so a glued seam reproduces the text exactly.
 pub fn wrap_rows(text: &str, width: usize) -> Vec<(String, crate::visual::Seam)> {
     use crate::visual::Seam;
@@ -206,8 +207,9 @@ pub fn wrap_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
 /// Like [`wrap_line`], but every row also carries its copy
 /// [`Seam`](crate::visual::Seam). The breaking whitespace is *consumed* by the
 /// wrap (it is dropped from both rows, keeping the rows gap-free on screen),
-/// so a break at whitespace re-joins with [`Seam::Space`] and a hard break
-/// inside a run with [`Seam::Glue`].
+/// so a break at whitespace re-joins with
+/// [`Seam::Space`](crate::visual::Seam::Space) and a hard break
+/// inside a run with [`Seam::Glue`](crate::visual::Seam::Glue).
 pub fn wrap_line_rows(
     line: Line<'static>,
     width: usize,

@@ -243,7 +243,7 @@ impl Viewport {
 
     /// Pin the viewport to the very top of the content: `window_range` shows
     /// `0..height` while the pin holds; manual scrolls convert it into an
-    /// equivalent offset via [`Self::max_offset`]. Used after a resume
+    /// equivalent offset via `max_offset`. Used after a resume
     /// replay: the user re-enters the session to READ the history, so the
     /// view starts at its head (not the tail).
     pub fn scroll_to_top(&mut self) {

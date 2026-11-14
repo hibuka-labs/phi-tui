@@ -31,7 +31,7 @@ pub struct CharPoint {
 
 /// A character-precise selection (inclusive at both ends): `anchor` is the
 /// drag start and `head` the current end; they may be in either order, so
-/// [`Selection::bounds`] normalizes.
+/// `bounds` normalizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Selection {
     pub anchor: CharPoint,
