@@ -4,6 +4,19 @@ All notable changes to phi-tui.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
+### Added
+- **`LineKind::Notice` — an amber line for "look at this".** A red line means
+  something broke; a warning that means "this needs you" is a different
+  message and now wears its own face, so red keeps meaning "this failed".
+
+### Changed
+- **The markdown renderer moved into a module** (`markdown/table.rs`).
+  Internal reorganization only — no API change, no behavior change.
+
+
+
 ## [0.4.0] - 2026-11-09
 
 ### Added

@@ -32,6 +32,10 @@ pub enum LineKind {
     System,
     Cancelled,
     Approval,
+    /// An attention line: something the user must look at, but nothing broke.
+    /// Distinct from `Error` (red) — a red line means "this failed", and a
+    /// warning that means "this needs you" is a different message.
+    Notice,
     User,
 }
 

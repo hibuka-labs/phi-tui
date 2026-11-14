@@ -11,32 +11,9 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-/// Calculate the display width of a string considering CJK characters.
-/// CJK characters take 2 columns, ASCII takes 1.
-fn unicode_display_width(s: &str) -> usize {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii() {
-                1
-            } else {
-                // CJK Unified Ideographs and common fullwidth characters
-                let cp = c as u32;
-                if (0x4E00..=0x9FFF).contains(&cp)   // CJK Unified Ideographs
-                    || (0x3000..=0x303F).contains(&cp) // CJK Symbols and Punctuation
-                    || (0xFF00..=0xFFEF).contains(&cp) // Halfwidth and Fullwidth Forms
-                    || (0x3400..=0x4DBF).contains(&cp) // CJK Unified Ideographs Extension A
-                    || (0x20000..=0x2A6DF).contains(&cp) // CJK Unified Ideographs Extension B
-                    || (0xF900..=0xFAFF).contains(&cp)
-                {
-                    // CJK Compatibility Ideographs
-                    2
-                } else {
-                    1
-                }
-            }
-        })
-        .sum()
-}
+mod table;
+
+use table::TableState;
 
 /// Extract plain text from a ratatui `Line` (concatenate all span contents).
 pub fn line_plain_text(line: &Line<'_>) -> String {
@@ -169,8 +146,19 @@ fn latex_to_unicode(latex: &str) -> String {
 /// this renderer produces rich output: headings are styled without markers,
 /// horizontal rules become separator lines, and inline formatting is applied.
 pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
+    render_markdown_with_width(text, None)
+}
+
+/// Render markdown, laying tables out to fit `max_width` terminal columns.
+///
+/// A table is the one markdown shape that draws its own frame, so it is the
+/// one shape that can overflow the pane: without a budget, a long cell makes
+/// the box wider than the screen and the transcript's soft-wrap shreds the
+/// borders. With a budget the columns shrink and the cell text wraps inside
+/// the cell, so the box stays a box. `None` keeps the natural layout.
+pub fn render_markdown_with_width(text: &str, max_width: Option<usize>) -> Vec<Line<'static>> {
     let parser = Parser::new_ext(text, Options::all());
-    let mut writer = MarkdownWriter::new();
+    let mut writer = MarkdownWriter::new(max_width);
     for event in parser {
         writer.process_event(event);
     }
@@ -186,21 +174,12 @@ struct MarkdownWriter {
     code_lang: String,
     needs_newline: bool,
     table_state: Option<TableState>,
-}
-
-/// State for accumulating table content.
-struct TableState {
-    alignments: Vec<pulldown_cmark::Alignment>,
-    header: Vec<Vec<Vec<Span<'static>>>>,
-    rows: Vec<Vec<Vec<Span<'static>>>>,
-    current_row: Vec<Vec<Span<'static>>>,
-    current_cell: Vec<Span<'static>>,
-    in_header: bool,
-    row_is_header: bool,
+    /// The width a rendered table must fit in (`None` = no budget).
+    table_width: Option<usize>,
 }
 
 impl MarkdownWriter {
-    fn new() -> Self {
+    fn new(table_width: Option<usize>) -> Self {
         Self {
             lines: Vec::new(),
             current_line: Line::default(),
@@ -209,6 +188,7 @@ impl MarkdownWriter {
             code_lang: String::new(),
             needs_newline: false,
             table_state: None,
+            table_width,
         }
     }
 
@@ -429,7 +409,7 @@ impl MarkdownWriter {
             TagEnd::Table => {
                 self.flush_current_line();
                 if let Some(ts) = self.table_state.take() {
-                    let table_lines = self.render_table(&ts);
+                    let table_lines = table::render(&ts, self.table_width);
                     for line in table_lines {
                         self.push_line(line);
                     }
@@ -506,147 +486,6 @@ impl MarkdownWriter {
         } else {
             self.current_line.spans.push(span);
         }
-    }
-
-    /// Render a complete table with box-drawing borders.
-    /// Reference: codex-rs/tui/src/markdown_render.rs
-    fn render_table(&self, ts: &TableState) -> Vec<Line<'static>> {
-        // Calculate column widths from header + all rows
-        let num_cols = ts.alignments.len();
-        if num_cols == 0 {
-            return Vec::new();
-        }
-
-        let mut col_widths = vec![0usize; num_cols];
-
-        // Measure header cells
-        for row in &ts.header {
-            for (col, cell) in row.iter().enumerate() {
-                if col < num_cols {
-                    let w: usize = cell.iter().map(|s| unicode_display_width(&s.content)).sum();
-                    col_widths[col] = col_widths[col].max(w);
-                }
-            }
-        }
-
-        // Measure body cells
-        for row in &ts.rows {
-            for (col, cell) in row.iter().enumerate() {
-                if col < num_cols {
-                    let w: usize = cell.iter().map(|s| unicode_display_width(&s.content)).sum();
-                    col_widths[col] = col_widths[col].max(w);
-                }
-            }
-        }
-
-        // Ensure minimum width of 3
-        for w in &mut col_widths {
-            *w = (*w).max(3);
-        }
-
-        let mut result = Vec::new();
-
-        // Build separator line: ├───┼───┤
-        let build_separator = |col_widths: &[usize]| -> Line<'static> {
-            let mut spans = Vec::new();
-            spans.push(Span::styled("├", Style::default().fg(Color::DarkGray)));
-            for (i, &w) in col_widths.iter().enumerate() {
-                let dashes = "─".repeat(w + 2);
-                spans.push(Span::styled(dashes, Style::default().fg(Color::DarkGray)));
-                if i < col_widths.len() - 1 {
-                    spans.push(Span::styled("┼", Style::default().fg(Color::DarkGray)));
-                }
-            }
-            spans.push(Span::styled("┤", Style::default().fg(Color::DarkGray)));
-            Line::from(spans)
-        };
-
-        // Build a data row with proper alignment and padding
-        let build_row = |row: &[Vec<Span<'static>>],
-                         col_widths: &[usize],
-                         alignments: &[pulldown_cmark::Alignment]|
-         -> Line<'static> {
-            let mut spans = Vec::new();
-            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            for (col, &width) in col_widths.iter().enumerate() {
-                let cell = row.get(col);
-                let cell_spans = cell.map(|c| c.as_slice()).unwrap_or(&[]);
-                let cell_width: usize = cell_spans
-                    .iter()
-                    .map(|s| unicode_display_width(&s.content))
-                    .sum();
-                let pad = width.saturating_sub(cell_width);
-                let alignment = alignments
-                    .get(col)
-                    .copied()
-                    .unwrap_or(pulldown_cmark::Alignment::None);
-
-                let (left_pad, right_pad) = match alignment {
-                    pulldown_cmark::Alignment::Center => (pad / 2, pad - pad / 2),
-                    pulldown_cmark::Alignment::Right => (pad, 0),
-                    _ => (0, pad),
-                };
-
-                spans.push(Span::styled(" ", Style::default()));
-                if left_pad > 0 {
-                    spans.push(Span::styled(" ".repeat(left_pad), Style::default()));
-                }
-                for s in cell_spans {
-                    spans.push(s.clone());
-                }
-                if right_pad > 0 {
-                    spans.push(Span::styled(" ".repeat(right_pad), Style::default()));
-                }
-                spans.push(Span::styled(" ", Style::default()));
-                spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            }
-            Line::from(spans)
-        };
-
-        // Top border: ┌───┬───┐
-        {
-            let mut spans = Vec::new();
-            spans.push(Span::styled("┌", Style::default().fg(Color::DarkGray)));
-            for (i, &w) in col_widths.iter().enumerate() {
-                let dashes = "─".repeat(w + 2);
-                spans.push(Span::styled(dashes, Style::default().fg(Color::DarkGray)));
-                if i < col_widths.len() - 1 {
-                    spans.push(Span::styled("┬", Style::default().fg(Color::DarkGray)));
-                }
-            }
-            spans.push(Span::styled("┐", Style::default().fg(Color::DarkGray)));
-            result.push(Line::from(spans));
-        }
-
-        // Header rows
-        for row in &ts.header {
-            result.push(build_row(row, &col_widths, &ts.alignments));
-        }
-
-        // Separator after header
-        result.push(build_separator(&col_widths));
-
-        // Body rows
-        for row in &ts.rows {
-            result.push(build_row(row, &col_widths, &ts.alignments));
-        }
-
-        // Bottom border: └───┴───┘
-        {
-            let mut spans = Vec::new();
-            spans.push(Span::styled("└", Style::default().fg(Color::DarkGray)));
-            for (i, &w) in col_widths.iter().enumerate() {
-                let dashes = "─".repeat(w + 2);
-                spans.push(Span::styled(dashes, Style::default().fg(Color::DarkGray)));
-                if i < col_widths.len() - 1 {
-                    spans.push(Span::styled("┴", Style::default().fg(Color::DarkGray)));
-                }
-            }
-            spans.push(Span::styled("┘", Style::default().fg(Color::DarkGray)));
-            result.push(Line::from(spans));
-        }
-
-        result
     }
 }
 
