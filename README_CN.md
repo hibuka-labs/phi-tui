@@ -1,7 +1,7 @@
 # phi-tui
 
 [![Crates.io](https://img.shields.io/crates/v/phi-tui.svg)](https://crates.io/crates/phi-tui)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 面向 LLM 终端的聊天式 TUI 组件集,基于 ratatui + crossterm。
 "人跟 LLM 打字聊天"的终端产品所需要的全部部件:带可锚定替换块的转录缓冲、
@@ -78,4 +78,4 @@ t.extend(lines);
 
 ## 许可
 
-MIT —— 见 [LICENSE](LICENSE)。
+MIT OR Apache-2.0 —— 见 [LICENSE-MIT](LICENSE-MIT) 与 [LICENSE-APACHE](LICENSE-APACHE)。

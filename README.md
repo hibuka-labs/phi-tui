@@ -1,7 +1,7 @@
 # phi-tui
 
 [![Crates.io](https://img.shields.io/crates/v/phi-tui.svg)](https://crates.io/crates/phi-tui)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 Chat-style TUI components for LLM terminals, built on ratatui + crossterm.
 Everything a "human types at an LLM" terminal product needs: a committed
@@ -84,4 +84,4 @@ completion state machine.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT OR Apache-2.0 — see [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
