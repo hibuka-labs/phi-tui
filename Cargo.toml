@@ -1,6 +1,6 @@
 [package]
 name = "phi-tui"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 description = "Chat-style TUI components for LLM terminals: streaming transcript, markdown, completion, selection"
 license = "MIT OR Apache-2.0"

@@ -4,6 +4,14 @@ All notable changes to phi-tui.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-27
+
+### Changed
+- **Dual-licensed as MIT OR Apache-2.0.** The crate's license field now carries
+  both, matching the rest of the family.
+- **CI runs on every release platform.** Linux, macOS and Windows all build and
+  test; a platform-primitive gate rejects hand-rolled `HOME` lookups.
+
 ## [0.5.0] - 2026-11-14
 
 ### Added
